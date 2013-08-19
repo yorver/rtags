@@ -260,6 +260,7 @@ void Project::onJobFinished(const shared_ptr<IndexerJob> &job)
     PendingJob pending;
     const Path currentFile = Server::instance()->currentFile();
     bool startPending = false;
+    bool syncNow = false;
     {
         std::lock_guard<std::mutex> lock(mMutex);
 
@@ -314,9 +315,14 @@ void Project::onJobFinished(const shared_ptr<IndexerJob> &job)
 
             if (mJobs.isEmpty()) {
                 mSyncTimer.restart(job->type() == IndexerJob::Dirty ? 0 : SyncTimeout, Timer::SingleShot);
+            } else if (Server::instance()->options().syncThreshold && !(idx % Server::instance()->options().syncThreshold)) {
+                syncNow = true;
             }
         }
     }
+    if (syncNow)
+        sync();
+
     if (startPending)
         index(pending.source, pending.type);
 }
@@ -724,6 +730,20 @@ static inline void writeReferences(const ReferenceMap &references, SymbolMap &sy
     }
 }
 
+void Project::sync()
+{
+    StopWatch sw;
+    syncDB();
+    const int syncTime = sw.restart();
+    save();
+    const int saveTime = sw.elapsed();
+    error() << "Jobs took" << (static_cast<double>(mTimer.elapsed()) / 1000.0) << "secs, syncing took"
+            << (static_cast<double>(syncTime) / 1000.0) << " secs, saving took"
+            << (static_cast<double>(saveTime) / 1000.0) << " secs, using"
+            << MemoryMonitor::usage() / (1024.0 * 1024.0) << "mb of memory";
+    mJobCounter = 0;
+}
+
 void Project::syncDB()
 {
     if (mPendingDirtyFiles.isEmpty() && mPendingData.isEmpty())
@@ -893,16 +913,7 @@ String Project::fixIts(uint32_t fileId) const
 void Project::onTimerFired(Timer* timer)
 {
     if (timer == &mSyncTimer) {
-        StopWatch sw;
-        syncDB();
-        const int syncTime = sw.restart();
-        save();
-        const int saveTime = sw.elapsed();
-        error() << "Jobs took" << (static_cast<double>(mTimer.elapsed()) / 1000.0) << "secs, syncing took"
-                << (static_cast<double>(syncTime) / 1000.0) << " secs, saving took"
-                << (static_cast<double>(saveTime) / 1000.0) << " secs, using"
-                << MemoryMonitor::usage() / (1024.0 * 1024.0) << "mb of memory";
-        mJobCounter = 0;
+        sync();
     } else {
         assert(0 && "Unexpected timer event in Project");
         timer->stop();

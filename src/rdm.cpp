@@ -64,7 +64,7 @@ void usage(FILE *f)
             "  --exclude-filter|-x [arg]                  Files to exclude from rdm, default \"" EXCLUDEFILTER_DEFAULT "\".\n"
             "  --no-rc|-N                                 Don't load any rc files.\n"
             "  --ignore-printf-fixits|-F                  Disregard any clang fixit that looks like it's trying to fix format for printf and friends.\n"
-            "  --config|-c [arg]                         Use this file instead of ~/.rdmrc.\n"
+            "  --config|-c [arg]                          Use this file instead of ~/.rdmrc.\n"
             "  --data-dir|-d [arg]                        Use this directory to store persistent data (default ~/.rtags).\n"
             "  --socket-file|-n [arg]                     Use this file for the server socket (default ~/.rdm).\n"
             "  --setenv|-e [arg]                          Set this environment variable (--setenv \"foobar=1\").\n"
@@ -72,6 +72,7 @@ void usage(FILE *f)
             "  --no-current-project|-o                    Don't restore the last current project on startup.\n"
             "  --allow-multiple-builds|-m                 Without this setting different builds will be merged for each source file.\n"
             "  --unload-timer|-u [arg]                    Number of minutes to wait before unloading non-current projects (disabled by default).\n"
+            "  --sync-threshold|-T [arg]                  Sync after this many jobs complete (disabled by default).\n"
             "  --thread-count|-j [arg]                    Spawn this many threads for thread pool.\n"
             "  --watch-system-paths|-w                    Watch system paths for changes.\n"
             "  --clear-completion-cache-interval|-O [arg] Set completion cache cleanup interval in minuts. (default " STR(DEFAULT_COMPLETION_CACHE_CLEAR_INTERVAL) ")\n"
@@ -135,6 +136,7 @@ int main(int argc, char** argv)
         { "disable-esprima", no_argument, 0, 'E' },
         { "enable-compiler-flags", no_argument, 0, 'K' },
         { "clear-completion-cache-interval", required_argument, 0, 'O' },
+        { "sync-threshold", required_argument, 0, 'T' },
 #ifdef OS_Darwin
         { "filemanager-watch", no_argument, 0, 'M' },
 #else
@@ -251,6 +253,13 @@ int main(int argc, char** argv)
             break;
         case 'x':
             serverOpts.excludeFilters += String(optarg).split(';');
+            break;
+        case 'T':
+            serverOpts.syncThreshold = atoi(optarg);
+            if (serverOpts.syncThreshold <= 0) {
+                fprintf(stderr, "Can't parse argument to -T %s\n", optarg);
+                return 1;
+            }
             break;
         case 't':
             serverOpts.clangStackSize = atoi(optarg);

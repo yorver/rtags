@@ -120,9 +120,10 @@ private:
     void onFileModified(const Path &);
     void addDependencies(const DependencyMap &hash, Set<uint32_t> &newFiles);
     void addFixIts(const DependencyMap &dependencies, const FixItMap &fixIts);
-    void syncDB();
     void startDirtyJobs(const Set<uint32_t> &files);
     void addCachedUnit(const Path &path, const List<String> &args, CXIndex index, CXTranslationUnit unit, int parseCount);
+    void sync();
+    void syncDB();
     bool save();
     void onValidateDBJobErrors(const Set<Location> &errors);
 
