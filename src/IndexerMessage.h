@@ -39,7 +39,7 @@ public:
         static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
         StopWatch sw;
         assert(data);
-        serializer << static_cast<key_t>(-1) << project << data->flags << data->key << data->parseTime;
+        serializer << project << data->flags << data->key << data->parseTime;
         CursorInfo::serialize(serializer, data->symbols);
         serializer << data->references << data->symbolNames << data->dependencies
                    << data->usrMap << data->message << data->fixIts
@@ -53,28 +53,23 @@ public:
     {
         String ret;
         Serializer serializer(ret);
+        serializer << static_cast<key_t>(-1);
         encodeData(serializer, project, data);
         return ret;
     }
 
     void decodeData(Deserializer &deserializer)
     {
-        static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
-        StopWatch sw;
         assert(!mData);
         uint32_t flags;
         deserializer >> mProject >> flags;
-        mData.reset(new IndexData(flags));
+        mData = std::make_shared<IndexData>(flags);
         deserializer >> mData->key >> mData->parseTime;
         CursorInfo::deserialize(deserializer, mData->symbols);
         deserializer >> mData->references >> mData->symbolNames >> mData->dependencies
                      >> mData->usrMap >> mData->message >> mData->fixIts >> mData->xmlDiagnostics
                      >> mData->visited >> mData->jobId;
-        if (debugIndexerMessage)
-            error() << "decoding took" << sw.elapsed() << "for" << Location::path(mData->fileId());
     }
-    std::shared_ptr<IndexData> data() const { return mData; }
-    const Path &project() const { return mProject; }
 
     virtual void encode(Serializer &) const
     {
@@ -83,10 +78,19 @@ public:
 
     virtual void decode(Deserializer &deserializer)
     {
+        static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
+        StopWatch sw;
         deserializer >> mShmKey;
-        if (mShmKey == -1)
+        if (mShmKey == -1) {
             decodeData(deserializer);
+            if (debugIndexerMessage)
+                error() << "decoding took" << sw.elapsed();
+        }
     }
+
+    std::shared_ptr<IndexData> data() const { return mData; }
+    const Path &project() const { return mProject; }
+
     key_t sharedMemory() const { return mShmKey; }
 private:
     Path mProject;

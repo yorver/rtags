@@ -24,6 +24,9 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef OS_Linux
+#include <linux/shm.h>
+#endif
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
 #include <cxxabi.h>
@@ -391,194 +394,214 @@ int main(int argc, char** argv)
             }
             break;
         case 'K':
-            serverOpts.sharedMemorySize = atoi(optarg);
-            if (serverOpts.sharedMemorySize < 0) {
-                fprintf(stderr, "Invalid argument to -K %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'H':
-            serverOpts.httpPort = static_cast<uint16_t>(atoi(optarg));
-            if (!serverOpts.httpPort) {
-                fprintf(stderr, "Invalid argument to -H %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'p':
-            serverOpts.tcpPort = static_cast<uint16_t>(atoi(optarg));
-            if (!serverOpts.tcpPort) {
-                fprintf(stderr, "Invalid argument to -p %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 't':
-            serverOpts.rpVisitFileTimeout = atoi(optarg);
-            if (serverOpts.rpVisitFileTimeout < 0) {
-                fprintf(stderr, "Invalid argument to -t %s\n", optarg);
-                return 1;
-            }
-            if (!serverOpts.rpVisitFileTimeout)
-                serverOpts.rpVisitFileTimeout = -1;
-            break;
-        case 'O':
-            serverOpts.rpConnectTimeout = atoi(optarg);
-            if (serverOpts.rpConnectTimeout < 0) {
-                fprintf(stderr, "Invalid argument to -O %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'R':
-            serverOpts.rescheduleTimeout = atoi(optarg);
-            if (serverOpts.rescheduleTimeout <= 0) {
-                fprintf(stderr, "Invalid argument to -R %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'k':
-            serverOpts.threadStackSize = atoi(optarg);
-            if (serverOpts.threadStackSize < 0) {
-                fprintf(stderr, "Invalid argument to -k %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'b':
-            serverOpts.ignoredCompilers.insert(Path::resolved(optarg));
-            break;
-        case 'B':
-            serverOpts.multicastTTL = atoi(optarg);
-            if (serverOpts.multicastTTL <= 0) {
-                fprintf(stderr, "Invalid argument to -B %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'n':
-            serverOpts.socketFile = optarg;
-            break;
-        case 'd':
-            serverOpts.dataDir = String::format<128>("%s", Path::resolved(optarg).constData());
-            break;
-        case 'h':
-            usage(stdout);
-            return 0;
-        case 'Y':
-            serverOpts.options |= Server::NoNoUnknownWarningsOption;
-            break;
-        case 'm':
-            serverOpts.options |= Server::DisallowMultipleSources;
-            break;
-        case 'o':
-            serverOpts.options |= Server::NoStartupCurrentProject;
-            break;
-        case 'w':
-            serverOpts.options |= Server::WatchSystemPaths;
-            break;
-        case 'q':
-            if (!strcmp(optarg, "on") || !strcmp(optarg, "1")) {
-                serverOpts.options |= Server::SuspendRPOnCrash;
-            } else if (!strcmp(optarg, "off") || !strcmp(optarg, "1")) {
-                serverOpts.options &= ~Server::SuspendRPOnCrash;
-            } else {
-                fprintf(stderr, "Invalid argument to -q. Must be on, off, 1, or 0\n");
-                return 1;
-            }
-            break;
-        case 'M':
-#ifdef OS_Darwin
-            serverOpts.options &= ~Server::NoFileManagerWatch;
-#else
-            serverOpts.options |= Server::NoFileManagerWatch;
+#ifdef OS_Linux
+            if (!strcmp(optarg, "max")) {
+                serverOpts.sharedMemorySize = SHMMAX;
+            } else
 #endif
-            break;
-        case 'F':
-            serverOpts.options |= Server::IgnorePrintfFixits;
-            break;
-        case 'f':
-            serverOpts.options |= Server::UnlimitedErrors;
-            break;
-        case 'l':
-            serverOpts.options &= ~Server::SpellChecking;
-            break;
-        case 'W':
-            serverOpts.options &= ~Server::Wall;
-            break;
-        case 'C':
-            serverOpts.options |= Server::ClearProjects;
-            break;
-        case 'e':
-            putenv(optarg);
-            break;
-        case 'x':
-            sigHandler = false;
-            break;
-        case 'u': {
-            bool ok;
-            serverOpts.unloadTimer = static_cast<int>(String(optarg).toULongLong(&ok));
-            if (!ok) {
-                fprintf(stderr, "Invalid argument to --unload-timer %s\n", optarg);
+        if (!strcmp(optarg, "none")) {
+            serverOpts.sharedMemorySize = 0;
+        } else {
+            serverOpts.sharedMemorySize = atoi(optarg);
+            if (serverOpts.sharedMemorySize < 0
+#ifdef OS_Linux
+                || serverOpts.sharedMemorySize > SHMMAX
+#endif
+                ) {
+                fprintf(stderr, "Invalid argument to -K %s.%s\n", optarg,
+#ifdef OS_Linux
+                        String::format<32>("Must be between 0-%d", SHMMAX).constData()
+#else
+                        ""
+#endif
+                    );
+
                 return 1;
             }
-            break; }
-        case 'y':
-            serverOpts.syncThreshold = atoi(optarg);
-            if (serverOpts.syncThreshold <= 0) {
-                fprintf(stderr, "Invalid argument to -y %s\n", optarg);
-                return 1;
-            }
-            break;
-        case 'T':
-            serverOpts.rpIndexerMessageTimeout = atoi(optarg);
-            if (serverOpts.rpIndexerMessageTimeout <= 0) {
-                fprintf(stderr, "Can't parse argument to -T %s.\n", optarg);
-                return 1;
-            }
-            break;
-        case 'J':
-            serverOpts.options |= Server::NoLocalCompiles;
-            break;
-        case 'j':
-            serverOpts.jobCount = atoi(optarg);
-            if (serverOpts.jobCount < 0) {
-                fprintf(stderr, "Can't parse argument to -j %s. -j must be a positive integer.\n", optarg);
-                return 1;
-            }
-            break;
-        case 'r': {
-            int large = atoi(optarg);
-            if (large <= 0) {
-                fprintf(stderr, "Can't parse argument to -r %s\n", optarg);
-                return 1;
-            }
-            serverOpts.defaultArguments.append("-Wlarge-by-value-copy=" + String(optarg)); // ### not quite working
-            break; }
-        case 'D': {
-            const char *eq = strchr(optarg, '=');
-            Source::Define def;
-            if (!eq) {
-                def.define = optarg;
-            } else {
-                def.define = String(optarg, eq - optarg);
-                def.value = eq + 1;
-            }
-            serverOpts.defines.append(def);
-            break; }
-        case 'I':
-            serverOpts.includePaths.append(Path::resolved(optarg));
-            break;
-        case 'A':
-            logFlags |= Log::Append;
-            break;
-        case 'L':
-            logFile = optarg;
-            break;
-        case 'v':
-            if (logLevel >= 0)
-                ++logLevel;
-            break;
-        case '?': {
-            fprintf(stderr, "Run rc --help for help\n");
-            return 1; }
         }
+        break;
+    case 'H':
+        serverOpts.httpPort = static_cast<uint16_t>(atoi(optarg));
+        if (!serverOpts.httpPort) {
+            fprintf(stderr, "Invalid argument to -H %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 'p':
+        serverOpts.tcpPort = static_cast<uint16_t>(atoi(optarg));
+        if (!serverOpts.tcpPort) {
+            fprintf(stderr, "Invalid argument to -p %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 't':
+        serverOpts.rpVisitFileTimeout = atoi(optarg);
+        if (serverOpts.rpVisitFileTimeout < 0) {
+            fprintf(stderr, "Invalid argument to -t %s\n", optarg);
+            return 1;
+        }
+        if (!serverOpts.rpVisitFileTimeout)
+            serverOpts.rpVisitFileTimeout = -1;
+        break;
+    case 'O':
+        serverOpts.rpConnectTimeout = atoi(optarg);
+        if (serverOpts.rpConnectTimeout < 0) {
+            fprintf(stderr, "Invalid argument to -O %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 'R':
+        serverOpts.rescheduleTimeout = atoi(optarg);
+        if (serverOpts.rescheduleTimeout <= 0) {
+            fprintf(stderr, "Invalid argument to -R %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 'k':
+        serverOpts.threadStackSize = atoi(optarg);
+        if (serverOpts.threadStackSize < 0) {
+            fprintf(stderr, "Invalid argument to -k %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 'b':
+        serverOpts.ignoredCompilers.insert(Path::resolved(optarg));
+        break;
+    case 'B':
+        serverOpts.multicastTTL = atoi(optarg);
+        if (serverOpts.multicastTTL <= 0) {
+            fprintf(stderr, "Invalid argument to -B %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 'n':
+        serverOpts.socketFile = optarg;
+        break;
+    case 'd':
+        serverOpts.dataDir = String::format<128>("%s", Path::resolved(optarg).constData());
+        break;
+    case 'h':
+        usage(stdout);
+        return 0;
+    case 'Y':
+        serverOpts.options |= Server::NoNoUnknownWarningsOption;
+        break;
+    case 'm':
+        serverOpts.options |= Server::DisallowMultipleSources;
+        break;
+    case 'o':
+        serverOpts.options |= Server::NoStartupCurrentProject;
+        break;
+    case 'w':
+        serverOpts.options |= Server::WatchSystemPaths;
+        break;
+    case 'q':
+        if (!strcmp(optarg, "on") || !strcmp(optarg, "1")) {
+            serverOpts.options |= Server::SuspendRPOnCrash;
+        } else if (!strcmp(optarg, "off") || !strcmp(optarg, "1")) {
+            serverOpts.options &= ~Server::SuspendRPOnCrash;
+        } else {
+            fprintf(stderr, "Invalid argument to -q. Must be on, off, 1, or 0\n");
+            return 1;
+        }
+        break;
+    case 'M':
+#ifdef OS_Darwin
+        serverOpts.options &= ~Server::NoFileManagerWatch;
+#else
+        serverOpts.options |= Server::NoFileManagerWatch;
+#endif
+        break;
+    case 'F':
+        serverOpts.options |= Server::IgnorePrintfFixits;
+        break;
+    case 'f':
+        serverOpts.options |= Server::UnlimitedErrors;
+        break;
+    case 'l':
+        serverOpts.options &= ~Server::SpellChecking;
+        break;
+    case 'W':
+        serverOpts.options &= ~Server::Wall;
+        break;
+    case 'C':
+        serverOpts.options |= Server::ClearProjects;
+        break;
+    case 'e':
+        putenv(optarg);
+        break;
+    case 'x':
+        sigHandler = false;
+        break;
+    case 'u': {
+        bool ok;
+        serverOpts.unloadTimer = static_cast<int>(String(optarg).toULongLong(&ok));
+        if (!ok) {
+            fprintf(stderr, "Invalid argument to --unload-timer %s\n", optarg);
+            return 1;
+        }
+        break; }
+    case 'y':
+        serverOpts.syncThreshold = atoi(optarg);
+        if (serverOpts.syncThreshold <= 0) {
+            fprintf(stderr, "Invalid argument to -y %s\n", optarg);
+            return 1;
+        }
+        break;
+    case 'T':
+        serverOpts.rpIndexerMessageTimeout = atoi(optarg);
+        if (serverOpts.rpIndexerMessageTimeout <= 0) {
+            fprintf(stderr, "Can't parse argument to -T %s.\n", optarg);
+            return 1;
+        }
+        break;
+    case 'J':
+        serverOpts.options |= Server::NoLocalCompiles;
+        break;
+    case 'j':
+        serverOpts.jobCount = atoi(optarg);
+        if (serverOpts.jobCount < 0) {
+            fprintf(stderr, "Can't parse argument to -j %s. -j must be a positive integer.\n", optarg);
+            return 1;
+        }
+        break;
+    case 'r': {
+        int large = atoi(optarg);
+        if (large <= 0) {
+            fprintf(stderr, "Can't parse argument to -r %s\n", optarg);
+            return 1;
+        }
+        serverOpts.defaultArguments.append("-Wlarge-by-value-copy=" + String(optarg)); // ### not quite working
+        break; }
+    case 'D': {
+        const char *eq = strchr(optarg, '=');
+        Source::Define def;
+        if (!eq) {
+            def.define = optarg;
+        } else {
+            def.define = String(optarg, eq - optarg);
+            def.value = eq + 1;
+        }
+        serverOpts.defines.append(def);
+        break; }
+    case 'I':
+        serverOpts.includePaths.append(Path::resolved(optarg));
+        break;
+    case 'A':
+        logFlags |= Log::Append;
+        break;
+    case 'L':
+        logFile = optarg;
+        break;
+    case 'v':
+        if (logLevel >= 0)
+            ++logLevel;
+        break;
+    case '?': {
+        fprintf(stderr, "Run rc --help for help\n");
+        return 1; }
     }
+}
     if (optind < argCount) {
         fprintf(stderr, "rdm: unexpected option -- '%s'\n", args[optind]);
         return 1;

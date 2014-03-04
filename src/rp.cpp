@@ -38,7 +38,7 @@ static void sigHandler(int signal)
             sleep(1);
         }
     }
-    error("Caught signal %d\n", signal);
+    error("Caught signal %d:%d:%d\n", signal, SIGSEGV, suspendOnSigSegv);
     // this is not really allowed in signal handlers but will mostly work
     const List<String>& trace = RTags::backtrace();
     auto it = trace.cbegin();

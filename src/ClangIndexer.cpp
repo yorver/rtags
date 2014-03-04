@@ -118,18 +118,23 @@ bool ClangIndexer::index(uint32_t flags, const Source &source,
     const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
 
     StopWatch stopWatch;
-    String encoded = IndexerMessage::encodeData(mProject, mData);
-    if (debugIndexerMessage)
-        error() << "encodeData took" << stopWatch.restart();
-    if (mSharedMemory && mSharedMemory->size() >= static_cast<int>(encoded.size() - sizeof(key_t))) { // we ignore the key_t part
-        memcpy(mSharedMemory->address(), encoded.constData() + sizeof(key_t),
-               encoded.size() - sizeof(key_t));
-        encoded.resize(sizeof(key_t));
-        *reinterpret_cast<key_t*>(&encoded[0]) = mSharedMemory->key();
-        if (debugIndexerMessage)
-            error() << "memcpy took" << stopWatch.elapsed();
+    String encoded;
+    if (mSharedMemory) {
+        Serializer serializer(reinterpret_cast<char*>(mSharedMemory->address()), mSharedMemory->size());
+        IndexerMessage::encodeData(serializer, mProject, mData);
+        if (!serializer.hasError()) {
+            encoded.resize(sizeof(key_t));
+            *reinterpret_cast<key_t*>(&encoded[0]) = mSharedMemory->key();
+        }
         mSharedMemory.reset();
     }
+
+    if (encoded.isEmpty()) {
+        encoded = IndexerMessage::encodeData(mProject, mData);
+    }
+    if (debugIndexerMessage)
+        error() << "encodeData took" << stopWatch.restart() << "to"
+                << (encoded.size() == sizeof(key_t) ? "shared memory" : "string");
     // FILE *f = fopen("/tmp/clangindex.log", "a");
     // fprintf(f, "Writing indexer message %d\n", mData->symbols.size());
 

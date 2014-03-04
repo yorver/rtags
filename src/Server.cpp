@@ -193,9 +193,11 @@ bool Server::init(const Options &options)
     Log l(Error);
     l << "Running with" << mOptions.jobCount << "jobs, using args:"
       << String::join(mOptions.defaultArguments, ' ') << '\n';
-    mSharedMemory.resize(mOptions.jobCount);
-    for (int i=0; i<mOptions.jobCount; ++i) {
-        initSharedMemory(i);
+    if (mOptions.sharedMemorySize) {
+        mSharedMemory.resize(mOptions.jobCount);
+        for (int i=0; i<mOptions.jobCount; ++i) {
+            initSharedMemory(i);
+        }
     }
     if (mOptions.tcpPort || mOptions.multicastPort || mOptions.httpPort) {
         if (mOptions.tcpPort)
@@ -529,7 +531,12 @@ void Server::handleIndexerMessage(IndexerMessage &message, Connection *conn)
         StopWatch sw;
         message.decodeData(deserializer);
         if (debugIndexerMessage)
-            error() << "decoding from shared memory took" << sw.elapsed();
+            error() << "decoding from shared memory took" << sw.elapsed() << message.data().get()
+                    << shm->size();
+        // if (!message.data()) {
+        //     conn->finish();
+        //     return;
+        // }
         assert(message.data());
         // error() << "Decoding from shared memory" << Location::path(message.data()->fileId());
     }
@@ -1331,10 +1338,12 @@ void Server::jobCount(const QueryMessage &query, Connection *conn)
             conn->write<128>("Invalid job count %s (%d)", query.query().constData(), jobCount);
         } else {
             mOptions.jobCount = jobCount;
-            const int old = mSharedMemory.size();
-            mSharedMemory.resize(jobCount);
-            for (int i=old; i<jobCount; ++i) {
-                initSharedMemory(i);
+            if (mOptions.sharedMemorySize) {
+                const int old = mSharedMemory.size();
+                mSharedMemory.resize(jobCount);
+                for (int i=old; i<jobCount; ++i) {
+                    initSharedMemory(i);
+                }
             }
             if (mThreadPool)
                 mThreadPool->setConcurrentJobs(std::max(1, jobCount));
@@ -1931,7 +1940,8 @@ void Server::stopServers()
     mHttpServer.reset();
     mProjects.clear();
     for (auto shm : mSharedMemory) {
-        shm->cleanup();
+        if (shm)
+            shm->cleanup();
     }
     mSharedMemory.clear();
     mActiveShm.clear();
@@ -2284,6 +2294,7 @@ bool Server::hasServer() const
 
 bool Server::initSharedMemory(int idx)
 {
+    Path::mkdir(mOptions.dataDir);
     assert(idx < mSharedMemory.size());
     assert(!mSharedMemory[idx]);
     const Path path = mOptions.dataDir + String::format<16>("shm_%d", idx);
