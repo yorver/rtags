@@ -1,9 +1,10 @@
 #include "IndexerJob.h"
-#include "Project.h"
-#include <rct/Process.h>
-#include <RTagsClang.h>
-#include "Server.h"
 #include "Cpp.h"
+#include "Project.h"
+#include "Server.h"
+#include <RTagsClang.h>
+#include <rct/Process.h>
+#include <rct/SharedMemory.h>
 
 uint64_t IndexerJob::nextId = 0;
 
@@ -27,7 +28,7 @@ IndexerJob::~IndexerJob()
     delete process;
 }
 
-bool IndexerJob::launchProcess()
+bool IndexerJob::launchProcess(const std::shared_ptr<SharedMemory> &memory)
 {
     assert(cpp);
     static Path rp;
@@ -39,6 +40,7 @@ bool IndexerJob::launchProcess()
             rp = rp.parentDir() + "rp";
         }
     }
+    sharedMemory = memory;
     String stdinData;
     {
         Serializer serializer(stdinData);
@@ -49,6 +51,7 @@ bool IndexerJob::launchProcess()
     assert(!process);
     process = new Process;
     if (!process->start(rp)) {
+        sharedMemory.reset();
         error() << "Couldn't start rp" << rp << process->errorString();
         return false;
     }
@@ -62,6 +65,7 @@ bool IndexerJob::launchProcess()
         *reinterpret_cast<int*>(&packet[0]) = size;
         process->write(packet);
         process->write(stdinData);
+        error() << "Starting process" << (packet.size() + stdinData.size()) << sourceFile;
     }
     return true;
 }
@@ -108,7 +112,8 @@ void IndexerJob::encode(Serializer &serializer)
     copy.includePaths << options.includePaths;
     copy.defines << options.defines;
     assert(cpp);
-    serializer << destination << port << sourceFile
+    serializer << static_cast<uint16_t>(ProtocolVersion)
+               << destination << port << sourceFile
                << copy << *cpp << project << flags
                << static_cast<uint32_t>(options.rpVisitFileTimeout)
                << static_cast<uint32_t>(options.rpIndexerMessageTimeout)
@@ -119,6 +124,12 @@ void IndexerJob::encode(Serializer &serializer)
     } else {
         serializer << blockedFiles;
     }
+    error() << "SENDING"
+            << (sharedMemory ? sharedMemory->key() : -1)
+            << (sharedMemory ? sharedMemory->size() : 0);
+
+    serializer << (sharedMemory ? sharedMemory->key() : -1)
+               << (sharedMemory ? sharedMemory->size() : 0);
 }
 
 String IndexerJob::dumpFlags(unsigned int flags)

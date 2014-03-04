@@ -12,6 +12,7 @@
 
 struct Cpp;
 class IndexData;
+class SharedMemory;
 class ClangIndexer
 {
 public:
@@ -28,6 +29,7 @@ public:
     int indexerMessageTimeout() const { return mIndexerMessageTimeout; }
     void setIndexerMessageTimeout(int indexerMessageTimeout) { mIndexerMessageTimeout = indexerMessageTimeout; }
     void setJobId(uint64_t id) { mId = id; }
+    bool initSharedMemory(key_t shmKey, unsigned int shmSize);
 private:
     bool diagnose();
     bool visit();
@@ -131,6 +133,7 @@ private:
     uint32_t mLastFileId;
     bool mLastBlocked;
     Path mLastFile;
+    std::shared_ptr<SharedMemory> mSharedMemory;
 };
 
 #endif

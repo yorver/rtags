@@ -24,7 +24,12 @@
 #include <signal.h>
 #include <syslog.h>
 
+#ifdef NDEBUG
 static bool suspendOnSigSegv = false;
+#else
+static bool suspendOnSigSegv = false;
+#endif
+
 static void sigHandler(int signal)
 {
     if (signal == SIGSEGV && suspendOnSigSegv) {
@@ -82,6 +87,12 @@ int main(int argc, char **argv)
         }
     }
     Deserializer deserializer(data);
+    uint16_t protocolVersion;
+    deserializer >> protocolVersion;
+    if (protocolVersion != IndexerJob::ProtocolVersion) {
+        error("Wrong protocol %d vs %d\n", protocolVersion, IndexerJob::ProtocolVersion);
+        return 3;
+    }
     String destination;
     uint16_t port;
     Path sourceFile;
@@ -92,34 +103,48 @@ int main(int argc, char **argv)
     std::shared_ptr<Cpp> cpp(new Cpp);
     uint64_t jobId;
     uint32_t visitFileTimeout, indexerMessageTimeout, connectTimeout;
-    deserializer >> destination >> port >> sourceFile >> source
-                 >> *cpp >> project >> flags
-                 >> visitFileTimeout >> indexerMessageTimeout >> connectTimeout
-                 >> suspendOnSigSegv >> jobId >> blockedFiles;
+    key_t shmKey;
+    unsigned int shmSize;
+    deserializer >> destination;
+    deserializer >> port;
+    deserializer >> sourceFile;
+    deserializer >> source;
+    deserializer >> *cpp;
+    deserializer >> project;
+    deserializer >> flags;
+    deserializer >> visitFileTimeout;
+    deserializer >> indexerMessageTimeout;
+    deserializer >> connectTimeout;
+    deserializer >> suspendOnSigSegv;
+    deserializer >> jobId;
+    deserializer >> blockedFiles;
+    deserializer >> shmKey;
+    deserializer >> shmSize;
+    error() << "FOOBAR" << shmKey << shmSize;
     if (sourceFile.isEmpty()) {
         error("No sourcefile\n");
-        return 3;
+        return 4;
     }
     if (!source.fileId) {
         error("Bad fileId\n");
-        return 3;
+        return 5;
     }
 
     if (project.isEmpty()) {
         error("No project\n");
-        return 4;
+        return 6;
     }
 
     ClangIndexer indexer;
     if (port) {
         if (!indexer.connect(destination, port, connectTimeout)) {
             error("Failed to connect to rdm %s:%d\n", destination.constData(), port);
-            return 6;
+            return 7;
         }
     } else {
         if (!indexer.connect(destination, connectTimeout)) {
             error("Failed to connect to rdm %s\n", destination.constData());
-            return 7;
+            return 8;
         }
     }
     Location::init(blockedFiles);
@@ -127,10 +152,11 @@ int main(int argc, char **argv)
     indexer.setVisitFileTimeout(visitFileTimeout);
     indexer.setIndexerMessageTimeout(indexerMessageTimeout);
     indexer.setJobId(jobId);
+    indexer.initSharedMemory(shmKey, shmSize);
 
     if (!indexer.index(flags, source, cpp, project)) {
         error("Failed to index %s\n", sourceFile.constData());
-        return 8;
+        return 9;
     }
 
     return 0;

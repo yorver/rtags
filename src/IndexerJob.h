@@ -25,6 +25,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include "Source.h"
 
 class Process;
+class SharedMemory;
 class IndexerJob : public std::enable_shared_from_this<IndexerJob>
 {
 public:
@@ -43,13 +44,15 @@ public:
         CompleteRemote = 0x0800
     };
 
+    enum { ProtocolVersion = 1 };
+
     static String dumpFlags(unsigned int);
 
     IndexerJob(unsigned int flags, const Path &p, const Source &s, const std::shared_ptr<Cpp> &preprocessed);
     IndexerJob();
     ~IndexerJob();
 
-    bool launchProcess();
+    bool launchProcess(const std::shared_ptr<SharedMemory> &memory);
     bool update(unsigned int flags, const Source &s, const std::shared_ptr<Cpp> &cpp);
     void abort();
     void encode(Serializer &serializer);
@@ -65,6 +68,7 @@ public:
     Hash<uint32_t, Path> blockedFiles; // only used for remote jobs
     uint64_t id, started;
     std::shared_ptr<Cpp> cpp;
+    std::shared_ptr<SharedMemory> sharedMemory;
 
     static uint64_t nextId;
 };

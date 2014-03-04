@@ -49,7 +49,8 @@ static Path socketFile;
 
 static void sigIntHandler(int)
 {
-    unlink(socketFile.constData());
+    if (Server *server = Server::instance())
+        server->stopServers();
     _exit(1);
 }
 
@@ -61,6 +62,7 @@ static void sigIntHandler(int)
 #define DEFAULT_RDM_HTTP_PORT DEFAULT_RDM_TCP_PORT + 1
 #define DEFAULT_RDM_MULTICAST_PORT DEFAULT_RDM_HTTP_PORT + 1
 #define DEFAULT_RESCHEDULE_TIMEOUT 15000
+#define DEFAULT_RDM_SHARED_MEMORY_SIZE 10 * 1024 * 1024
 #define XSTR(s) #s
 #define STR(s) XSTR(s)
 static size_t defaultStackSize = 0;
@@ -123,6 +125,7 @@ static void usage(FILE *f)
             "  --compression|-Z [arg]                     Compression type. Arg should be \"always\", \"remote\" or \"none\" (\"none\" is default).\n"
             "  --http-port|-H [arg]                       Use this port for http (default " STR(DEFAULT_RDM_HTTP_PORT) ").\n"
             "  --reschedule-timeout|-R                    Timeout for rescheduling remote jobs (default " STR(DEFAULT_RESCHEDULE_TIMEOUT) ").\n"
+            "  --shared-memory-size|-K [arg]              Shared memory size per job (default " STR(DEFAULT_RDM_SHARED_MEMORY_SIZE) ").\n"
             "  --thread-stack-size|-k [arg]               Set stack size for threadpool to this (default %zu).\n",
             std::max(2, ThreadPool::idealThreadCount()), defaultStackSize);
 }
@@ -186,6 +189,7 @@ int main(int argc, char** argv)
         { "thread-stack-size", required_argument, 0, 'k' },
         { "suspend-rp-on-crash", required_argument, 0, 'q' },
         { "separate-debug-and-release", no_argument, 0, 'E' },
+        { "shared-memory-size", required_argument, 0, 'K' },
 #ifdef OS_Darwin
         { "filemanager-watch", no_argument, 0, 'M' },
 #else
@@ -298,6 +302,7 @@ int main(int argc, char** argv)
     serverOpts.rpIndexerMessageTimeout = DEFAULT_RP_INDEXER_MESSAGE_TIMEOUT;
     serverOpts.rpConnectTimeout = DEFAULT_RP_CONNECT_TIMEOUT;
     serverOpts.options = Server::Wall|Server::SpellChecking;
+    serverOpts.sharedMemorySize = DEFAULT_RDM_SHARED_MEMORY_SIZE;
 #ifdef OS_Darwin
     serverOpts.options |= Server::NoFileManagerWatch;
 #endif
@@ -382,6 +387,13 @@ int main(int argc, char** argv)
             serverOpts.multicastPort = static_cast<uint16_t>(atoi(optarg));
             if (!serverOpts.multicastPort) {
                 fprintf(stderr, "Invalid argument to -P %s\n", optarg);
+                return 1;
+            }
+            break;
+        case 'K':
+            serverOpts.sharedMemorySize = atoi(optarg);
+            if (serverOpts.sharedMemorySize <= 0) {
+                fprintf(stderr, "Invalid argument to -K %s\n", optarg);
                 return 1;
             }
             break;

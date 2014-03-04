@@ -54,7 +54,6 @@
 #include <clang-c/Index.h>
 #include <rct/Connection.h>
 #include <rct/EventLoop.h>
-#include <rct/SocketClient.h>
 #include <rct/Log.h>
 #include <rct/Message.h>
 #include <rct/Messages.h>
@@ -62,6 +61,8 @@
 #include <rct/Process.h>
 #include <rct/Rct.h>
 #include <rct/RegExp.h>
+#include <rct/SharedMemory.h>
+#include <rct/SocketClient.h>
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <limits>
@@ -191,6 +192,10 @@ bool Server::init(const Options &options)
     Log l(Error);
     l << "Running with" << mOptions.jobCount << "jobs, using args:"
       << String::join(mOptions.defaultArguments, ' ') << '\n';
+    mSharedMemory.resize(mOptions.jobCount);
+    for (int i=0; i<mOptions.jobCount; ++i) {
+        initSharedMemory(i);
+    }
     if (mOptions.tcpPort || mOptions.multicastPort || mOptions.httpPort) {
         if (mOptions.tcpPort)
             l << "tcp-port:" << mOptions.tcpPort;
@@ -1314,6 +1319,11 @@ void Server::jobCount(const QueryMessage &query, Connection *conn)
             conn->write<128>("Invalid job count %s (%d)", query.query().constData(), jobCount);
         } else {
             mOptions.jobCount = jobCount;
+            const int old = mSharedMemory.size();
+            mSharedMemory.resize(jobCount);
+            for (int i=old; i<jobCount; ++i) {
+                initSharedMemory(i);
+            }
             if (mThreadPool)
                 mThreadPool->setConcurrentJobs(std::max(1, jobCount));
             conn->write<128>("Changed jobs to %d", jobCount);
@@ -1904,6 +1914,11 @@ void Server::stopServers()
     mTcpServer.reset();
     mHttpServer.reset();
     mProjects.clear();
+    for (auto shm : mSharedMemory) {
+        if (shm.first) {
+            shm.first->cleanup();
+        }
+    }
 }
 
 void Server::codeCompleteAt(const QueryMessage &query, Connection *conn)
@@ -2123,7 +2138,14 @@ void Server::work()
             job->flags &= ~IndexerJob::Rescheduled;
             it = mPending.erase(it);
             --jobs;
-            if (job->launchProcess()) {
+            List<std::pair<std::shared_ptr<SharedMemory>, bool> >::iterator shm;
+            for (shm = mSharedMemory.begin(); shm != mSharedMemory.end(); ++shm) {
+                if (!shm->second) {
+                    shm->second = true;
+                    break;
+                }
+            }
+            if (job->launchProcess(shm != mSharedMemory.end() ? shm->first : std::shared_ptr<SharedMemory>())) {
                 if (debugMulti)
                     error() << "started job locally for" << job->sourceFile << job->id;
                 mLocalJobs[job->process] = std::make_pair(job, Rct::monoMs());
@@ -2131,6 +2153,9 @@ void Server::work()
                 job->process->finished().connect(std::bind(&Server::onLocalJobFinished, this,
                                                            std::placeholders::_1));
             } else {
+                if (shm != mSharedMemory.end()) {
+                    shm->second = false;
+                }
                 mLocalJobs[job->process] = std::make_pair(job, Rct::monoMs());
                 EventLoop::eventLoop()->callLater(std::bind(&Server::onLocalJobFinished, this, std::placeholders::_1), job->process);
             }
@@ -2240,4 +2265,23 @@ bool Server::hasServer() const
     if (mOptions.options & NoJobServer)
         return false;
     return mServerConnection;
+}
+
+bool Server::initSharedMemory(int idx)
+{
+    assert(idx < mSharedMemory.size());
+    assert(!mSharedMemory[idx].first);
+    const Path path = mOptions.dataDir + String::format<16>("shm_%d", idx);
+    if (!path.touch()) {
+        error() << "Couldn't open file" << path << "for shared memory";
+        return false;
+    }
+    std::shared_ptr<SharedMemory> mem = std::make_shared<SharedMemory>(path, mOptions.sharedMemorySize, SharedMemory::Create);
+    if (!mem->attach(SharedMemory::Read)) {
+        error() << "Couldn't attach to shared" << path;
+        // return false;
+    }
+
+    mSharedMemory[idx] = std::make_pair(mem, false);
+    return true;
 }

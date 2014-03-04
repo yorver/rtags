@@ -1,13 +1,14 @@
 #define RTAGS_SINGLE_THREAD
 #include "ClangIndexer.h"
+#include "Cpp.h"
+#include "IndexData.h"
+#include "IndexerMessage.h"
 #include "QueryMessage.h"
 #include "VisitFileMessage.h"
 #include "VisitFileResponseMessage.h"
 #include <rct/Connection.h>
 #include <rct/EventLoop.h>
-#include "IndexerMessage.h"
-#include "Cpp.h"
-#include "IndexData.h"
+#include <rct/SharedMemory.h>
 
 static const CXSourceLocation nullLocation = clang_getNullLocation();
 static const CXCursor nullCursor = clang_getNullCursor();
@@ -114,8 +115,12 @@ bool ClangIndexer::index(uint32_t flags, const Source &source,
     }
     if (mData->flags & IndexerJob::Dirty)
         mData->message += " (dirty)";
-    const IndexerMessage msg(mProject, mData);
-    ++mFileIdsQueried;
+    std::shared_ptr<IndexerMessage> msg;
+    // if (mSharedMemory && mSharedMemory && false) {
+    //     msg.reset(new IndexerMessage(IndexerMessage::SharedMemory));
+    // } else {
+        msg.reset(new IndexerMessage(mProject, mData));
+    // }
     // FILE *f = fopen("/tmp/clangindex.log", "a");
     // fprintf(f, "Writing indexer message %d\n", mData->symbols.size());
 
@@ -126,7 +131,7 @@ bool ClangIndexer::index(uint32_t flags, const Source &source,
     //     abort();
     // }
     StopWatch sw;
-    if (!mConnection.send(msg)) {
+    if (!mConnection.send(*msg)) {
         error() << "Couldn't send IndexerMessage" << Location::path(mSource.fileId);
         return false;
     }
@@ -1270,4 +1275,19 @@ void ClangIndexer::inclusionVisitor(CXFile includedFile,
                 indexer->mData->dependencies[fileId].insert(f);
         }
     }
+}
+
+bool ClangIndexer::initSharedMemory(key_t shmKey, unsigned int shmSize)
+{
+    if (shmSize == 0) {
+        return true;
+    }
+
+    assert(!mSharedMemory);
+    std::shared_ptr<SharedMemory> shm = std::make_shared<SharedMemory>(shmKey, shmSize);
+    if (shm->isValid() && shm->attach(SharedMemory::ReadWrite)) {
+        mSharedMemory = shm;
+        return true;
+    }
+    return false;
 }

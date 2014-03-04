@@ -30,6 +30,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <rct/Timer.h>
 #include <rct/SocketServer.h>
 
+class SharedMemory;
 class ClientConnectedMessage;
 class ClientMessage;
 class CompileMessage;
@@ -85,13 +86,14 @@ public:
             : options(0), jobCount(0), unloadTimer(0),
               rpVisitFileTimeout(0), rpIndexerMessageTimeout(0), rpConnectTimeout(0),
               syncThreshold(0), rescheduleTimeout(0), multicastTTL(0), threadStackSize(0),
-              tcpPort(0), multicastPort(0), httpPort(0)
+              sharedMemorySize(0), tcpPort(0), multicastPort(0), httpPort(0)
         {}
         Path socketFile, dataDir;
         unsigned options;
         int jobCount, unloadTimer, rpVisitFileTimeout,
             rpIndexerMessageTimeout, rpConnectTimeout, syncThreshold,
-            rescheduleTimeout, multicastTTL, threadStackSize;
+            rescheduleTimeout, multicastTTL, threadStackSize,
+            sharedMemorySize;
         List<String> defaultArguments, excludeFilters;
         List<Path> includePaths;
         List<Source::Define> defines;
@@ -199,6 +201,7 @@ private:
     void onHttpClientReadyRead(const SocketClient::SharedPtr &socket);
     void connectToServer();
     void startRescheduleTimer();
+    bool initSharedMemory(int idx);
 
     typedef Hash<Path, std::shared_ptr<Project> > ProjectsMap;
     ProjectsMap mProjects;
@@ -239,6 +242,7 @@ private:
     Hash<String, Remote *> mRemotes;
     bool mWorkPending;
     int mExitCode;
+    List<std::pair<std::shared_ptr<SharedMemory>, bool> > mSharedMemory;
 };
 
 #endif

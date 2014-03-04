@@ -27,48 +27,74 @@ public:
     enum { MessageId = IndexerMessageId };
 
     IndexerMessage(const Path &project, std::shared_ptr<IndexData> &data)
-        : RTagsMessage(MessageId), mProject(project), mData(data)
+        : RTagsMessage(MessageId), mProject(project), mData(data), mShm(false)
+    {
+    }
+
+    enum Mode {
+        SharedMemory
+    };
+    IndexerMessage(Mode mode)
+        : RTagsMessage(MessageId), mShm(true)
     {
     }
 
     IndexerMessage()
-        : RTagsMessage(MessageId)
+        : RTagsMessage(MessageId), mShm(false)
     {}
 
-    void encode(Serializer &serializer) const
+    static String encode(const Path &project,
+                         const std::shared_ptr<IndexData> &data)
     {
+        String ret;
+        Serializer serializer(ret);
         static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
         StopWatch sw;
-        assert(mData);
-        serializer << mProject << mData->flags << mData->key << mData->parseTime;
-        CursorInfo::serialize(serializer, mData->symbols);
-        serializer << mData->references << mData->symbolNames << mData->dependencies
-                   << mData->usrMap << mData->message << mData->fixIts
-                   << mData->xmlDiagnostics << mData->visited << mData->jobId;
+        assert(data);
+        serializer << project << data->flags << data->key << data->parseTime;
+        CursorInfo::serialize(serializer, data->symbols);
+        serializer << data->references << data->symbolNames << data->dependencies
+                   << data->usrMap << data->message << data->fixIts
+                   << data->xmlDiagnostics << data->visited << data->jobId;
         if (debugIndexerMessage)
-            error() << "encoding took" << sw.elapsed() << "for" << Location::path(mData->fileId());
+            error() << "encoding took" << sw.elapsed() << "for" << Location::path(data->fileId());
+        return ret;
     }
-    void decode(Deserializer &deserializer)
+
+    virtual void encode(Serializer &serializer) const
     {
-        static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
-        StopWatch sw;
-        assert(!mData);
-        uint32_t flags;
-        deserializer >> mProject >> flags;
-        mData.reset(new IndexData(flags));
-        deserializer >> mData->key >> mData->parseTime;
-        CursorInfo::deserialize(deserializer, mData->symbols);
-        deserializer >> mData->references >> mData->symbolNames >> mData->dependencies
-                     >> mData->usrMap >> mData->message >> mData->fixIts >> mData->xmlDiagnostics
-                     >> mData->visited >> mData->jobId;
-        if (debugIndexerMessage)
-            error() << "decoding took" << sw.elapsed() << "for" << Location::path(mData->fileId());
+        serializer << mShm;
+        if (!mShm) {
+            assert(mData);
+            serializer.write(IndexerMessage::encode(mProject, mData));
+        }
+    }
+
+    virtual void decode(Deserializer &deserializer)
+    {
+        deserializer >> mShm;
+        if (!mShm) {
+            static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
+            StopWatch sw;
+            assert(!mData);
+            uint32_t flags;
+            deserializer >> mProject >> flags;
+            mData.reset(new IndexData(flags));
+            deserializer >> mData->key >> mData->parseTime;
+            CursorInfo::deserialize(deserializer, mData->symbols);
+            deserializer >> mData->references >> mData->symbolNames >> mData->dependencies
+                         >> mData->usrMap >> mData->message >> mData->fixIts >> mData->xmlDiagnostics
+                         >> mData->visited >> mData->jobId;
+            if (debugIndexerMessage)
+                error() << "decoding took" << sw.elapsed() << "for" << Location::path(mData->fileId());
+        }
     }
     std::shared_ptr<IndexData> data() const { return mData; }
     const Path &project() const { return mProject; }
 private:
     Path mProject;
     std::shared_ptr<IndexData> mData;
+    bool mShm;
 };
 
 #endif
