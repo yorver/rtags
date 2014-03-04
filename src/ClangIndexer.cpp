@@ -115,12 +115,21 @@ bool ClangIndexer::index(uint32_t flags, const Source &source,
     }
     if (mData->flags & IndexerJob::Dirty)
         mData->message += " (dirty)";
-    std::shared_ptr<IndexerMessage> msg;
-    // if (mSharedMemory && mSharedMemory && false) {
-    //     msg.reset(new IndexerMessage(IndexerMessage::SharedMemory));
-    // } else {
-        msg.reset(new IndexerMessage(mProject, mData));
-    // }
+    const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
+
+    StopWatch stopWatch;
+    String encoded = IndexerMessage::encodeData(mProject, mData);
+    if (debugIndexerMessage)
+        error() << "encodeData took" << stopWatch.restart();
+    if (mSharedMemory && mSharedMemory->size() >= static_cast<int>(encoded.size() - sizeof(key_t))) { // we ignore the key_t part
+        memcpy(mSharedMemory->address(), encoded.constData() + sizeof(key_t),
+               encoded.size() - sizeof(key_t));
+        encoded.resize(sizeof(key_t));
+        *reinterpret_cast<key_t*>(&encoded[0]) = mSharedMemory->key();
+        if (debugIndexerMessage)
+            error() << "memcpy took" << stopWatch.elapsed();
+        mSharedMemory.reset();
+    }
     // FILE *f = fopen("/tmp/clangindex.log", "a");
     // fprintf(f, "Writing indexer message %d\n", mData->symbols.size());
 
@@ -130,8 +139,9 @@ bool ClangIndexer::index(uint32_t flags, const Source &source,
     //     sleep(1);
     //     abort();
     // }
-    StopWatch sw;
-    if (!mConnection.send(*msg)) {
+    if (debugIndexerMessage)
+        stopWatch.restart();
+    if (!mConnection.send(IndexerMessage::MessageId, encoded)) {
         error() << "Couldn't send IndexerMessage" << Location::path(mSource.fileId);
         return false;
     }
@@ -140,8 +150,8 @@ bool ClangIndexer::index(uint32_t flags, const Source &source,
         error() << "Couldn't send IndexerMessage (2)" << Location::path(mSource.fileId);
         return false;
     }
-    if (getenv("RDM_DEBUG_INDEXERMESSAGE"))
-        error() << "Send took" << sw.elapsed() << "for" << Location::path(mSource.fileId);
+    if (debugIndexerMessage)
+        error() << "Send took" << stopWatch.elapsed() << "for" << Location::path(mSource.fileId);
     // error() << "Must have gotten a finished" << Location::path(mSource.fileId);
     // fprintf(f, "Wrote indexer message %d\n", mData->symbols.size());
     // fclose(f);

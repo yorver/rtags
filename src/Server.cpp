@@ -110,6 +110,7 @@ private:
 };
 
 static const bool debugMulti = getenv("RDM_DEBUG_MULTI");
+static const bool debugIndexerMessage = getenv("RDM_DEBUG_INDEXERMESSAGE");
 
 Server *Server::sInstance = 0;
 Server::Server()
@@ -397,7 +398,7 @@ void Server::onNewMessage(Message *message, Connection *connection)
         handleQueryMessage(static_cast<const QueryMessage&>(*m), connection);
         break;
     case IndexerMessage::MessageId:
-        handleIndexerMessage(static_cast<const IndexerMessage&>(*m), connection);
+        handleIndexerMessage(static_cast<IndexerMessage&>(*m), connection);
         break;
     case LogOutputMessage::MessageId:
         error() << m->raw();
@@ -518,9 +519,20 @@ void Server::handleLogOutputMessage(const LogOutputMessage &message, Connection 
     new LogObject(conn, message.level());
 }
 
-void Server::handleIndexerMessage(const IndexerMessage &message, Connection *conn)
+void Server::handleIndexerMessage(IndexerMessage &message, Connection *conn)
 {
     WorkScope scope;
+    if (message.sharedMemory() != -1) {
+        const std::shared_ptr<SharedMemory> shm = mActiveShm.take(message.sharedMemory());
+        assert(shm);
+        Deserializer deserializer(reinterpret_cast<const char*>(shm->address()), shm->size());
+        StopWatch sw;
+        message.decodeData(deserializer);
+        if (debugIndexerMessage)
+            error() << "decoding from shared memory took" << sw.elapsed();
+        assert(message.data());
+        // error() << "Decoding from shared memory" << Location::path(message.data()->fileId());
+    }
     std::shared_ptr<IndexData> indexData = message.data();
     // error() << "Got indexer message" << message.project() << Location::path(indexData->fileId);
     assert(indexData);
@@ -1889,6 +1901,10 @@ void Server::onLocalJobFinished(Process *process)
         && (process->returnCode() != 0 || !process->errorString().isEmpty())) {
         if (!(job->flags & IndexerJob::Aborted))
             job->flags |= IndexerJob::Crashed;
+        if (job->sharedMemoryKey != -1) {
+            mActiveShm.remove(job->sharedMemoryKey);
+            job->sharedMemoryKey = -1;
+        }
         job->flags &= ~IndexerJob::RunningLocal;
 
         std::shared_ptr<Project> proj = project(job->project);
@@ -1915,10 +1931,10 @@ void Server::stopServers()
     mHttpServer.reset();
     mProjects.clear();
     for (auto shm : mSharedMemory) {
-        if (shm.first) {
-            shm.first->cleanup();
-        }
+        shm->cleanup();
     }
+    mSharedMemory.clear();
+    mActiveShm.clear();
 }
 
 void Server::codeCompleteAt(const QueryMessage &query, Connection *conn)
@@ -2138,14 +2154,16 @@ void Server::work()
             job->flags &= ~IndexerJob::Rescheduled;
             it = mPending.erase(it);
             --jobs;
-            List<std::pair<std::shared_ptr<SharedMemory>, bool> >::iterator shm;
-            for (shm = mSharedMemory.begin(); shm != mSharedMemory.end(); ++shm) {
-                if (!shm->second) {
-                    shm->second = true;
+            std::shared_ptr<SharedMemory> shm;
+            for (const auto &it : mSharedMemory) {
+                if (it.use_count() == 1) {
+                    shm = it;
                     break;
                 }
             }
-            if (job->launchProcess(shm != mSharedMemory.end() ? shm->first : std::shared_ptr<SharedMemory>())) {
+            if (job->launchProcess(shm)) {
+                if (shm)
+                    mActiveShm[shm->key()] = shm;
                 if (debugMulti)
                     error() << "started job locally for" << job->sourceFile << job->id;
                 mLocalJobs[job->process] = std::make_pair(job, Rct::monoMs());
@@ -2153,9 +2171,6 @@ void Server::work()
                 job->process->finished().connect(std::bind(&Server::onLocalJobFinished, this,
                                                            std::placeholders::_1));
             } else {
-                if (shm != mSharedMemory.end()) {
-                    shm->second = false;
-                }
                 mLocalJobs[job->process] = std::make_pair(job, Rct::monoMs());
                 EventLoop::eventLoop()->callLater(std::bind(&Server::onLocalJobFinished, this, std::placeholders::_1), job->process);
             }
@@ -2270,18 +2285,20 @@ bool Server::hasServer() const
 bool Server::initSharedMemory(int idx)
 {
     assert(idx < mSharedMemory.size());
-    assert(!mSharedMemory[idx].first);
+    assert(!mSharedMemory[idx]);
     const Path path = mOptions.dataDir + String::format<16>("shm_%d", idx);
     if (!path.touch()) {
         error() << "Couldn't open file" << path << "for shared memory";
         return false;
     }
-    std::shared_ptr<SharedMemory> mem = std::make_shared<SharedMemory>(path, mOptions.sharedMemorySize, SharedMemory::Create);
+    std::shared_ptr<SharedMemory> mem = std::make_shared<SharedMemory>(path,
+                                                                       mOptions.sharedMemorySize,
+                                                                       SharedMemory::Recreate);
     if (!mem->attach(SharedMemory::Read)) {
         error() << "Couldn't attach to shared" << path;
-        // return false;
+        return false;
     }
 
-    mSharedMemory[idx] = std::make_pair(mem, false);
+    mSharedMemory[idx] = mem;
     return true;
 }

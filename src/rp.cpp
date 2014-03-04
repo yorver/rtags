@@ -120,7 +120,6 @@ int main(int argc, char **argv)
     deserializer >> blockedFiles;
     deserializer >> shmKey;
     deserializer >> shmSize;
-    error() << "FOOBAR" << shmKey << shmSize;
     if (sourceFile.isEmpty()) {
         error("No sourcefile\n");
         return 4;

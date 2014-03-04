@@ -9,7 +9,7 @@
 uint64_t IndexerJob::nextId = 0;
 
 IndexerJob::IndexerJob(uint32_t f, const Path &p, const Source &s, const std::shared_ptr<Cpp> &c)
-    : flags(f), destination(Server::instance()->options().socketFile),
+    : flags(f), sharedMemoryKey(-1), destination(Server::instance()->options().socketFile),
       port(0), project(p), source(s), sourceFile(s.sourceFile()),
       process(0), id(++nextId), started(0), cpp(c)
 {
@@ -28,7 +28,7 @@ IndexerJob::~IndexerJob()
     delete process;
 }
 
-bool IndexerJob::launchProcess(const std::shared_ptr<SharedMemory> &memory)
+bool IndexerJob::launchProcess(const std::shared_ptr<SharedMemory> &sharedMemory)
 {
     assert(cpp);
     static Path rp;
@@ -40,18 +40,11 @@ bool IndexerJob::launchProcess(const std::shared_ptr<SharedMemory> &memory)
             rp = rp.parentDir() + "rp";
         }
     }
-    sharedMemory = memory;
-    String stdinData;
-    {
-        Serializer serializer(stdinData);
-        encode(serializer);
-    }
 
     started = 0;
     assert(!process);
     process = new Process;
     if (!process->start(rp)) {
-        sharedMemory.reset();
         error() << "Couldn't start rp" << rp << process->errorString();
         return false;
     }
@@ -59,13 +52,20 @@ bool IndexerJob::launchProcess(const std::shared_ptr<SharedMemory> &memory)
     flags |= RunningLocal;
 
     {
+        String stdinData;
+        {
+            Serializer serializer(stdinData);
+            encode(serializer, sharedMemory);
+        }
+        if (sharedMemory)
+            sharedMemoryKey = sharedMemory->key();
         const int size = stdinData.size();
-        String packet;
-        packet.resize(sizeof(size));
-        *reinterpret_cast<int*>(&packet[0]) = size;
-        process->write(packet);
+        String header;
+        header.resize(sizeof(size));
+        *reinterpret_cast<int*>(&header[0]) = size;
+        process->write(header);
         process->write(stdinData);
-        error() << "Starting process" << (packet.size() + stdinData.size()) << sourceFile;
+        // error() << "Startingprocess" << (packet.size() + stdinData.size()) << sourceFile;
     }
     return true;
 }
@@ -101,7 +101,7 @@ void IndexerJob::abort()
     flags |= Aborted;
 }
 
-void IndexerJob::encode(Serializer &serializer)
+void IndexerJob::encode(Serializer &serializer, const std::shared_ptr<SharedMemory> &sharedMemory)
 {
     std::shared_ptr<Project> proj;
     if (!(flags & FromRemote))
@@ -124,9 +124,6 @@ void IndexerJob::encode(Serializer &serializer)
     } else {
         serializer << blockedFiles;
     }
-    error() << "SENDING"
-            << (sharedMemory ? sharedMemory->key() : -1)
-            << (sharedMemory ? sharedMemory->size() : 0);
 
     serializer << (sharedMemory ? sharedMemory->key() : -1)
                << (sharedMemory ? sharedMemory->size() : 0);

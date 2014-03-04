@@ -135,7 +135,7 @@ private:
     void clearProjects();
     void handleExitMessage(const ExitMessage &message);
     void handleCompileMessage(CompileMessage &message, Connection *conn);
-    void handleIndexerMessage(const IndexerMessage &message, Connection *conn);
+    void handleIndexerMessage(IndexerMessage &message, Connection *conn);
     void handleQueryMessage(const QueryMessage &message, Connection *conn);
     void handleErrorMessage(const ErrorMessage &message, Connection *conn);
     void handleLogOutputMessage(const LogOutputMessage &message, Connection *conn);
@@ -242,7 +242,8 @@ private:
     Hash<String, Remote *> mRemotes;
     bool mWorkPending;
     int mExitCode;
-    List<std::pair<std::shared_ptr<SharedMemory>, bool> > mSharedMemory;
+    Hash<key_t, std::shared_ptr<SharedMemory> > mActiveShm;
+    List<std::shared_ptr<SharedMemory> > mSharedMemory;
 };
 
 #endif

@@ -62,7 +62,7 @@ static void sigIntHandler(int)
 #define DEFAULT_RDM_HTTP_PORT DEFAULT_RDM_TCP_PORT + 1
 #define DEFAULT_RDM_MULTICAST_PORT DEFAULT_RDM_HTTP_PORT + 1
 #define DEFAULT_RESCHEDULE_TIMEOUT 15000
-#define DEFAULT_RDM_SHARED_MEMORY_SIZE 10 * 1024 * 1024
+#define DEFAULT_RDM_SHARED_MEMORY_SIZE 0 //10 * 1024 * 1024
 #define XSTR(s) #s
 #define STR(s) XSTR(s)
 static size_t defaultStackSize = 0;
@@ -392,7 +392,7 @@ int main(int argc, char** argv)
             break;
         case 'K':
             serverOpts.sharedMemorySize = atoi(optarg);
-            if (serverOpts.sharedMemorySize <= 0) {
+            if (serverOpts.sharedMemorySize < 0) {
                 fprintf(stderr, "Invalid argument to -K %s\n", optarg);
                 return 1;
             }
