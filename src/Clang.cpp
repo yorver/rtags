@@ -16,9 +16,12 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include "Clang.h"
 #define __STDC_LIMIT_MACROS
 #define __STDC_CONSTANT_MACROS
+#include <clang/Basic/Version.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
 #include <clang/Frontend/FrontendActions.h>
+#include <clang/AST/ASTConsumer.h>
+#include <clang/AST/ASTContext.h>
 #include <clang/AST/DataRecursiveASTVisitor.h>
 
 class RTagsCompilationDatabase : public clang::tooling::CompilationDatabase
@@ -144,10 +147,17 @@ public:
     RTagsFrontendAction(Clang *clang)
         : mClang(clang)
     {}
+#if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR >= 6)
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, clang::StringRef InFile) override
     {
         return std::unique_ptr<clang::ASTConsumer>(new RTagsASTConsumer(mClang));
     }
+#else
+    clang::ASTConsumer *CreateASTConsumer(clang::CompilerInstance &CI, clang::StringRef InFile) override
+    {
+        return new RTagsASTConsumer(mClang);
+    }
+#endif
 private:
     Clang *mClang;
 };
