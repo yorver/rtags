@@ -164,7 +164,7 @@ target_link_libraries(rdm rtags -lstdc++ ${SYSTEM_LIBS})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 set(RP_LIBRARIES rtags shared)
-set(RP_SOURCES rp.cpp ClangIndexer.cpp)
+set(RP_SOURCES rp.cpp ClangIndexer.cpp Clang.cpp)
 
 add_executable(rp ${RP_SOURCES})
 target_link_libraries(rp ${RP_LIBRARIES})
