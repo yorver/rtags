@@ -106,6 +106,7 @@ enum OptionType {
     UnloadProject,
     UnsavedFile,
     Verbose,
+    Visit,
     WildcardSymbolNames,
     XmlDiagnostics
 };
@@ -181,6 +182,7 @@ struct Option opts[] = {
     { PrepareCodeCompleteAt, "prepare-code-complete-at", 'b', required_argument, "Prepare code completion at location: arg is file:line:col." },
     { SendDiagnostics, "send-diagnostics", 0, required_argument, "Only for debugging. Send data to all -g connections." },
     { DumpCompletions, "dump-completions", 0, no_argument, "Dump cached completions." },
+    { Visit, "visit", 0, required_argument, "Visit using Clang C++ API (for testing)." },
 
     { None, 0, 0, 0, "" },
     { None, 0, 0, 0, "Command flags:" },
@@ -1011,6 +1013,7 @@ bool RClient::parse(int &argc, char **argv)
         case IsIndexed:
         case DumpFile:
         case Dependencies:
+        case Visit:
         case FixIts: {
             Path p = optarg;
             if (!p.exists()) {
@@ -1036,6 +1039,7 @@ bool RClient::parse(int &argc, char **argv)
             case FixIts: type = QueryMessage::FixIts; break;
             case DumpFile: type = QueryMessage::DumpFile; break;
             case IsIndexed: type = QueryMessage::IsIndexed; break;
+            case Visit: type = QueryMessage::Visit; break;
             default: assert(0); break;
             }
 

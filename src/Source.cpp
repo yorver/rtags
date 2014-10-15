@@ -738,6 +738,8 @@ List<String> Source::toCommandLine(unsigned int flags) const
     ret.reserve(64);
     if (flags & IncludeCompiler)
         ret.append(compiler());
+    if (flags & IncludeLibClangOptions)
+        ret.append("--fsyntax-only");
     for (int i=0; i<arguments.size(); ++i) {
         if (!(flags & FilterBlacklist) || !isBlacklisted(arguments.at(i))) {
             ret.append(arguments.at(i));

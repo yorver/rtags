@@ -22,6 +22,7 @@
 #include "DependenciesJob.h"
 #include "VisitFileResponseMessage.h"
 #include "Filter.h"
+#include "Clang.h"
 #include "FindFileJob.h"
 #include "FindSymbolsJob.h"
 #include "FollowLocationJob.h"
@@ -554,6 +555,9 @@ void Server::handleQueryMessage(const std::shared_ptr<QueryMessage> &message, Co
         break;
     case QueryMessage::ReloadFileManager:
         reloadFileManager(message, conn);
+        break;
+    case QueryMessage::Visit:
+        visit(message, conn);
         break;
     }
 }
@@ -1322,6 +1326,49 @@ void Server::suspend(const std::shared_ptr<QueryMessage> &query, Connection *con
         break;
     }
     conn->finish();
+}
+
+class C : public Clang
+{
+public:
+    C()
+        : count(0)
+    {}
+    virtual RecurseMode visit(clang::Decl */*decl*/)
+    {
+        ++count;
+        return RecurseChildren;
+    }
+
+    int count;
+};
+
+void Server::visit(const std::shared_ptr<QueryMessage> &query, Connection *conn)
+{
+    const uint32_t fileId = Location::fileId(query->query());
+    if (!fileId) {
+        conn->write<256>("%s is not indexed", query->query().constData());
+        conn->finish();
+        return;
+    }
+
+    std::shared_ptr<Project> project = projectForQuery(query);
+    if (!project || project->state() != Project::Loaded) {
+        conn->write<256>("%s is not indexed", query->query().constData());
+        conn->finish();
+        return;
+    }
+
+    const Source source = project->sources(fileId).value(query->buildIndex());
+    if (!source.isNull()) {
+        C c;
+        c.index(source, query->unsavedFiles().value(source.sourceFile()));
+        conn->write<128>("Got %d symbols", c.count);
+        conn->finish();
+    } else {
+        conn->write<256>("%s build: %d not found", query->query().constData(), query->buildIndex());
+        conn->finish();
+    }
 }
 
 void Server::syncProject(const std::shared_ptr<QueryMessage> &/*query*/, Connection *conn)

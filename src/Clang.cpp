@@ -14,7 +14,12 @@ You should have received a copy of the GNU General Public License
 along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "Clang.h"
+#define __STDC_LIMIT_MACROS
+#define __STDC_CONSTANT_MACROS
 #include <clang/Tooling/CompilationDatabase.h>
+#include <clang/Tooling/Tooling.h>
+#include <clang/Frontend/FrontendActions.h>
+#include <clang/AST/DataRecursiveASTVisitor.h>
 
 class RTagsCompilationDatabase : public clang::tooling::CompilationDatabase
 {
@@ -23,7 +28,11 @@ public:
         : mSource(source), mUnsaved(unsaved)
     {
         mCommand.Directory = source.pwd;
-        const unsigned int commandLineFlags = Source::FilterBlacklist|Source::IncludeDefines|Source::IncludeIncludepaths;
+        const unsigned int commandLineFlags = (Source::FilterBlacklist
+                                               | Source::IncludeDefines
+                                               | Source::IncludeIncludepaths
+                                               | Source::IncludeSourceFile
+                                               | Source::IncludeLibClangOptions);
         const List<String> args = source.toCommandLine(commandLineFlags);
         mCommand.CommandLine.resize(args.size());
         int i = 0;
@@ -59,29 +68,109 @@ private:
     const String mUnsaved;
 };
 
-bool Clang::index(const Source &source)
+class RTagsASTConsumer : public clang::ASTConsumer, public clang::DataRecursiveASTVisitor<RTagsASTConsumer>
+{
+    typedef clang::DataRecursiveASTVisitor<RTagsASTConsumer> base;
+public:
+    RTagsASTConsumer(Clang *clang)
+        : mClang(clang), mAborted(false)
+    {}
+
+    void HandleTranslationUnit(clang::ASTContext &Context) override {
+        clang::TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+    }
+
+    bool shouldWalkTypesOfTypeLocs() const { return true; } // ### ???
+
+    bool TraverseDecl(clang::Decl *d) {
+        if (mAborted)
+            return true;
+        if (d) {
+            error() << getName(d);
+            switch (mClang->visit(d)) {
+            case Clang::Abort:
+                mAborted = true;
+                return true;
+            case Clang::SkipChildren:
+                return true;
+            case Clang::RecurseChildren:
+                break;
+            }
+            // bodl ShowColors = Out.has_colors();
+            // if (ShowColors)
+            //     Out.changeColor(raw_ostream::BLUE);
+            // Out << ((Dump || DumpLookups) ? "Dumping " : "Printing ") << getName(D)
+            //     << ":\n";
+            // if (ShowColors)
+            //     Out.resetColor();
+            // print(D);
+            // Out << "\n";
+            // Don't traverse child nodes to avoid output duplication.
+            // return true;
+
+        }
+        return base::TraverseDecl(d);
+    }
+
+private:
+    std::string getName(clang::Decl *D) {
+        if (clang::isa<clang::NamedDecl>(D))
+            return clang::cast<clang::NamedDecl>(D)->getQualifiedNameAsString();
+        return "";
+    }
+    // void print(clang::Decl *D) {
+        // if (DumpLookups) {
+        //     if (clang::DeclContext *DC = clang::dyn_cast<clang::DeclContext>(D)) {
+        //         if (DC == DC->getPrimaryContext())
+        //             DC->dumpLookups(Out, Dump);
+        //         else
+        //             Out << "Lookup map is in primary DeclContext "
+        //                 << DC->getPrimaryContext() << "\n";
+        //     } else
+        //         Out << "Not a DeclContext\n";
+        // } else if (Dump)
+        //     D->dump(Out);
+        // else
+        //     D->print(Out, /*Indentation=*/0, /*PrintInstantiation=*/true);
+    // }
+    Clang *mClang;
+    bool mAborted;
+};
+
+class RTagsFrontendAction : public clang::ASTFrontendAction
+{
+public:
+    RTagsFrontendAction(Clang *clang)
+        : mClang(clang)
+    {}
+    std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, clang::StringRef InFile) override
+    {
+        return std::unique_ptr<clang::ASTConsumer>(new RTagsASTConsumer(mClang));
+    }
+private:
+    Clang *mClang;
+};
+
+class RTagsFrontendActionFactory : public clang::tooling::FrontendActionFactory
+{
+public:
+    RTagsFrontendActionFactory(Clang *clang)
+        : mClang(clang)
+    {}
+    virtual clang::FrontendAction *create()
+    {
+        return new RTagsFrontendAction(mClang);
+    }
+private:
+    Clang *mClang;
+};
+
+bool Clang::index(const Source &source, const String &unsaved)
 {
     RTagsCompilationDatabase compilationDatabase(source);
-    // const unsigned int commandLineFlags = Source::FilterBlacklist|Source::IncludeDefines|Source::IncludeIncludepaths;
-    // const List<String> args = source.toCommandLine(commandLineFlags);
-    // const char *clangArgs[args.size() + 1];
-    // clangArgs[args.size()] = 0;
-    // for (int i=0; i<args.size(); ++i) {
-    //     clangArgs[i] = args[i].constData();
-    // }
-
-    // clang::ASTUnit *unit = clang::ASTUnit::LoadFromCommandLine(clangArgs, clangArgs + args.size());
-    //     const char **ArgBegin, const char **ArgEnd,
-    //     IntrusiveRefCntPtr<DiagnosticsEngine> Diags, StringRef ResourceFilesPath,
-    //     bool OnlyLocalDecls = false, bool CaptureDiagnostics = false,
-    //     ArrayRef<RemappedFile> RemappedFiles = None,
-    //     bool RemappedFilesKeepOriginalName = true,
-    //     bool PrecompilePreamble = false, TranslationUnitKind TUKind = TU_Complete,
-    //     bool CacheCodeCompletionResults = false,
-    //     bool IncludeBriefCommentsInCodeCompletion = false,
-    //     bool AllowPCHWithCompilerErrors = false, bool SkipFunctionBodies = false,
-    //     bool UserFilesAreVolatile = false, bool ForSerialization = false,
-    //     std::unique_ptr<ASTUnit> *ErrAST = nullptr);
-
-
+    clang::tooling::ClangTool tool(compilationDatabase, compilationDatabase.getAllFiles());
+    RTagsFrontendActionFactory factory(this);
+    tool.run(&factory);
+    return true;
 }

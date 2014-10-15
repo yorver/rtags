@@ -156,6 +156,7 @@ struct Source
         ExcludeDefaultArguments = 0x040,
         ExcludeDefaultIncludePaths = 0x080,
         ExcludeDefaultDefines = 0x100,
+        IncludeLibClangOptions = 0x200,
         Default = IncludeDefines|IncludeIncludepaths|FilterBlacklist
     };
 

@@ -18,23 +18,23 @@
 
 #include <Source.h>
 
+namespace clang {
+class Decl;
+};
+
 class Clang
 {
 public:
     Clang() {}
     virtual ~Clang() {}
-    bool index(const Source &source);
-
-    struct Symbol {
-
-    };
+    bool index(const Source &source, const String &unsaved);
 
     enum RecurseMode {
         Abort,
         SkipChildren,
         RecurseChildren
     };
-    virtual RecurseMode visit(const Symbol &symbol) { return RecurseChildren; }
+    virtual RecurseMode visit(clang::Decl */*decl*/) { return RecurseChildren; }
 };
 
 #endif

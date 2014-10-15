@@ -149,6 +149,7 @@ private:
     void status(const std::shared_ptr<QueryMessage> &query, Connection *conn);
     void syncProject(const std::shared_ptr<QueryMessage> &qyery, Connection *conn);
     void suspend(const std::shared_ptr<QueryMessage> &query, Connection *conn);
+    void visit(const std::shared_ptr<QueryMessage> &query, Connection *conn);
 
     std::shared_ptr<Project> projectForQuery(const std::shared_ptr<QueryMessage> &queryMessage);
     std::shared_ptr<Project> currentProject() const { return mCurrentProject.lock(); }

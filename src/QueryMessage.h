@@ -62,7 +62,8 @@ public:
         Status,
         Suspend,
         SyncProject,
-        UnloadProject
+        UnloadProject,
+        Visit
     };
 
     enum Flag {
