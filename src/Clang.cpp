@@ -22,21 +22,36 @@ public:
     RTagsCompilationDatabase(const Source &source, const String &unsaved = String())
         : mSource(source), mUnsaved(unsaved)
     {
+        mCommand.Directory = source.pwd;
+        const unsigned int commandLineFlags = Source::FilterBlacklist|Source::IncludeDefines|Source::IncludeIncludepaths;
+        const List<String> args = source.toCommandLine(commandLineFlags);
+        mCommand.CommandLine.resize(args.size());
+        int i = 0;
 
+        for (const auto &str : args) {
+            mCommand.CommandLine[i++] = str;
+        }
+        if (!unsaved.isEmpty()) {
+            mCommand.MappedSources.push_back(std::make_pair(source.sourceFile(), unsaved));
+        }
     }
 
     virtual std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef file) const
     {
-
+        Path path(file.data(), file.size());
+        if (path.isSameFile(mSource.sourceFile()))
+            return getAllCompileCommands();
+        return std::vector<clang::tooling::CompileCommand>();
     }
 
     virtual std::vector<std::string> getAllFiles() const
     {
+        return std::vector<std::string>(1, mSource.sourceFile());
     }
 
     virtual std::vector<clang::tooling::CompileCommand> getAllCompileCommands() const
     {
-
+        return std::vector<clang::tooling::CompileCommand>(1, mCommand);
     }
 private:
     clang::tooling::CompileCommand mCommand;
