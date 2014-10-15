@@ -22,7 +22,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/ASTContext.h>
-#include <clang/AST/DataRecursiveASTVisitor.h>
+#include <clang/AST/RecursiveASTVisitor.h>
 
 class RTagsCompilationDatabase : public clang::tooling::CompilationDatabase
 {
@@ -71,9 +71,9 @@ private:
     const String mUnsaved;
 };
 
-class RTagsASTConsumer : public clang::ASTConsumer, public clang::DataRecursiveASTVisitor<RTagsASTConsumer>
+class RTagsASTConsumer : public clang::ASTConsumer, public clang::RecursiveASTVisitor<RTagsASTConsumer>
 {
-    typedef clang::DataRecursiveASTVisitor<RTagsASTConsumer> base;
+    typedef clang::RecursiveASTVisitor<RTagsASTConsumer> base;
 public:
     RTagsASTConsumer(Clang *clang)
         : mClang(clang), mAborted(false)
