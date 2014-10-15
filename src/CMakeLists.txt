@@ -3,15 +3,15 @@ if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif ()
 
-SET(CMAKE_SKIP_BUILD_RPATH            FALSE)
-SET(CMAKE_BUILD_WITH_INSTALL_RPATH    FALSE)
-SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 # Set RPATH when installing to a custom (non-system) directory
-LIST(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
-IF("${isSystemDir}" STREQUAL "-1")
-  SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-ENDIF("${isSystemDir}" STREQUAL "-1")
+list(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
+if ("${isSystemDir}" STREQUAL "-1")
+  set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+endif ()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
@@ -63,7 +63,7 @@ add_definitions("-DCLANG_INCLUDEPATH=${CLANG_SYSTEM_INCLUDE}")
 add_definitions("-DOS_${CMAKE_SYSTEM_NAME}")
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-  set(SYSTEM_LIBS pthread rt crypto m dl curses)
+  set(SYSTEM_LIBS pthread rt crypto m dl curses tinfo)
 elseif (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   add_definitions(-D__LONG_LONG_SUPPORTED)
   set(SYSTEM_LIBS pthread crypto curses)
@@ -88,13 +88,9 @@ set(RTAGS_SHARED_SOURCES
   LogOutputMessage.cpp
   Location.cpp
   QueryMessage.cpp
-  RTags.cpp)
-
-add_library(shared STATIC ${RTAGS_SHARED_SOURCES})
-target_link_libraries(shared rct)
-
-set(RTAGS_SOURCES
+  RTags.cpp
   Clang.cpp
+  ClangIndexer.cpp
   CompilerManager.cpp
   CompletionThread.cpp
   CursorInfo.cpp
@@ -119,6 +115,9 @@ set(RTAGS_SOURCES
   Source.cpp
   StatusJob.cpp)
 
+add_library(shared STATIC ${RTAGS_SHARED_SOURCES})
+target_link_libraries(shared rct)
+
 include_directories(${CMAKE_CURRENT_LIST_DIR}
   rct/include/
   rct
@@ -134,45 +133,30 @@ else ()
   set(END_GROUP "-Wl,--end-group")
 endif ()
 
-# add_executable(clangtest clangtest.c)
-# target_link_libraries(clangtest
-#   ${START_GROUP}
-#   ${CLANG_LIBS}
-#   ${LLVM_LIBNAMES}
-#   ${END_GROUP}
-#   -lstdc++
-#   ${SYSTEM_LIBS}
-# )
-
-add_executable(rc rc.cpp RClient.cpp)
-add_dependencies(rc rct shared)
-target_link_libraries(rc shared rct ${SYSTEM_LIBS})
-
-add_library(rtags STATIC ${RTAGS_SOURCES})
-target_link_libraries(rtags
+set(RTAGS_LIBRARIES
   rct
   shared
   ${START_GROUP}
   ${CLANG_LIBS}
-  # ${LLVM_LIBNAMES}
   ${END_GROUP}
-  -lstdc++
-  ${SYSTEM_LIBS})
-add_dependencies(rtags rct)
+  ${SYSTEM_LIBS}
+  -lstdc++)
+
+
+add_executable(rc rc.cpp RClient.cpp)
+target_link_libraries(rc ${RTAGS_LIBRARIES})
 
 add_executable(rdm rdm.cpp)
-target_link_libraries(rdm rtags -lstdc++ ${SYSTEM_LIBS})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
+target_link_libraries(rdm ${RTAGS_LIBRARIES})
 
-set(RP_LIBRARIES rtags shared)
-set(RP_SOURCES rp.cpp ClangIndexer.cpp)
-
-add_executable(rp ${RP_SOURCES})
-target_link_libraries(rp ${RP_LIBRARIES})
+add_executable(rp rp.cpp)
+target_link_libraries(rp ${RTAGS_LIBRARIES})
 
 if (CYGWIN)
   EnsureLibraries(rdm rct)
 endif ()
+
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 if (NOT "${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_DIR}")
   file (GLOB binFiles "${PROJECT_SOURCE_DIR}/bin/*")
