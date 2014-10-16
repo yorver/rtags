@@ -22,7 +22,20 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/ASTContext.h>
+#include <clang/AST/DeclVisitor.h>
+#include <clang/AST/StmtVisitor.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+
+static inline std::string getDeclName(const clang::Decl *D) {
+    if (clang::isa<clang::NamedDecl>(D))
+        return clang::cast<clang::NamedDecl>(D)->getQualifiedNameAsString();
+    return std::string();
+}
+
+static inline std::string getDeclLoc(const clang::Decl *D, const clang::SourceManager* sm)
+{
+    return D->getLocStart().printToString(*sm);
+}
 
 class RTagsCompilationDatabase : public clang::tooling::CompilationDatabase
 {
@@ -71,6 +84,344 @@ private:
     const String mUnsaved;
 };
 
+class RTagsDeclVisitor : public clang::ConstDeclVisitor<RTagsDeclVisitor>,
+                         public clang::ConstStmtVisitor<RTagsDeclVisitor>
+{
+public:
+    RTagsDeclVisitor()
+        : mSourceManager(0)
+    {
+    }
+
+    void setSourceManager(const clang::SourceManager* sm)
+    {
+        mSourceManager = sm;
+    }
+
+    void visitDecl(const clang::Decl* d)
+    {
+        clang::ConstDeclVisitor<RTagsDeclVisitor>::Visit(d);
+    }
+
+    void visitStmt(const clang::Stmt* s)
+    {
+        if (const clang::DeclStmt *DS = clang::dyn_cast<clang::DeclStmt>(s)) {
+            VisitDeclStmt(DS);
+            return;
+        }
+        clang::ConstStmtVisitor<RTagsDeclVisitor>::Visit(s);
+        for (clang::Stmt::const_child_range CI = s->children(); CI; ++CI) {
+            // Stmt::const_child_range Next = CI;
+            // ++Next;
+            // if (!Next)
+            //     lastChild();
+            visitStmt(*CI);
+        }
+    }
+
+    void VisitLabelDecl(const clang::LabelDecl *D)
+    {
+    }
+
+    void VisitTypedefDecl(const clang::TypedefDecl *D)
+    {
+    }
+
+    void VisitEnumDecl(const clang::EnumDecl *D)
+    {
+    }
+
+    void VisitRecordDecl(const clang::RecordDecl *D)
+    {
+    }
+
+    void VisitEnumConstantDecl(const clang::EnumConstantDecl *D)
+    {
+        if (const clang::Expr *Init = D->getInitExpr()) {
+            visitStmt(Init);
+        }
+    }
+
+    void VisitIndirectFieldDecl(const clang::IndirectFieldDecl *D)
+    {
+    }
+
+    void VisitFunctionDecl(const clang::FunctionDecl *D)
+    {
+    }
+
+    void VisitFieldDecl(const clang::FieldDecl *D)
+    {
+        if (clang::Expr *Init = D->getInClassInitializer()) {
+            visitStmt(Init);
+        }
+    }
+
+    void VisitVarDecl(const clang::VarDecl *D)
+    {
+        error() << "got var" << getDeclName(D) << getDeclLoc(D, mSourceManager);
+        if (D->hasInit()) {
+            visitStmt(D->getInit());
+        }
+    }
+
+    void VisitFileScopeAsmDecl(const clang::FileScopeAsmDecl *D)
+    {
+    }
+
+    void VisitImportDecl(const clang::ImportDecl *D)
+    {
+    }
+
+    void VisitNamespaceDecl(const clang::NamespaceDecl *D)
+    {
+    }
+
+    void VisitUsingDirectiveDecl(const clang::UsingDirectiveDecl *D)
+    {
+    }
+
+    void VisitNamespaceAliasDecl(const clang::NamespaceAliasDecl *D)
+    {
+    }
+
+    void VisitTypeAliasDecl(const clang::TypeAliasDecl *D)
+    {
+    }
+
+    void VisitTypeAliasTemplateDecl(const clang::TypeAliasTemplateDecl *D)
+    {
+    }
+
+    void VisitCXXRecordDecl(const clang::CXXRecordDecl *D)
+    {
+        error() << "got cxx record" << getDeclName(D) << getDeclLoc(D, mSourceManager);
+    }
+
+    void VisitStaticAssertDecl(const clang::StaticAssertDecl *D)
+    {
+        visitStmt(D->getAssertExpr());
+        visitStmt(D->getMessage());
+    }
+
+    void VisitFunctionTemplateDecl(const clang::FunctionTemplateDecl *D)
+    {
+    }
+
+    void VisitClassTemplateDecl(const clang::ClassTemplateDecl *D)
+    {
+    }
+
+    void VisitClassTemplateSpecializationDecl(const clang::ClassTemplateSpecializationDecl *D)
+    {
+    }
+
+    void VisitClassTemplatePartialSpecializationDecl(const clang::ClassTemplatePartialSpecializationDecl *D)
+    {
+    }
+
+    void VisitClassScopeFunctionSpecializationDecl(const clang::ClassScopeFunctionSpecializationDecl *D)
+    {
+    }
+
+    void VisitVarTemplateDecl(const clang::VarTemplateDecl *D)
+    {
+    }
+
+    void VisitVarTemplateSpecializationDecl(const clang::VarTemplateSpecializationDecl *D)
+    {
+    }
+
+    void VisitVarTemplatePartialSpecializationDecl(const clang::VarTemplatePartialSpecializationDecl *D)
+    {
+    }
+
+    void VisitTemplateTypeParmDecl(const clang::TemplateTypeParmDecl *D)
+    {
+    }
+
+    void VisitNonTypeTemplateParmDecl(const clang::NonTypeTemplateParmDecl *D)
+    {
+    }
+
+    void VisitTemplateTemplateParmDecl(const clang::TemplateTemplateParmDecl *D)
+    {
+    }
+
+    void VisitUsingDecl(const clang::UsingDecl *D)
+    {
+    }
+
+    void VisitUnresolvedUsingTypenameDecl(const clang::UnresolvedUsingTypenameDecl *D)
+    {
+    }
+
+    void VisitUnresolvedUsingValueDecl(const clang::UnresolvedUsingValueDecl *D)
+    {
+    }
+
+    void VisitUsingShadowDecl(const clang::UsingShadowDecl *D)
+    {
+    }
+
+    void VisitLinkageSpecDecl(const clang::LinkageSpecDecl *D)
+    {
+    }
+
+    void VisitAccessSpecDecl(const clang::AccessSpecDecl *D)
+    {
+    }
+
+    void VisitFriendDecl(const clang::FriendDecl *D)
+    {
+    }
+
+    void VisitDeclStmt(const clang::DeclStmt *Node)
+    {
+        for (clang::DeclStmt::const_decl_iterator I = Node->decl_begin(), E = Node->decl_end(); I != E; ++I) {
+            // if (I + 1 == E)
+            //     lastChild();
+            visitDecl(*I);
+        }
+    }
+
+    void VisitAttributedStmt(const clang::AttributedStmt *Node)
+    {
+    }
+
+    void VisitLabelStmt(const clang::LabelStmt *Node)
+    {
+    }
+
+    void VisitGotoStmt(const clang::GotoStmt *Node)
+    {
+    }
+
+    void VisitCXXCatchStmt(const clang::CXXCatchStmt *Node)
+    {
+    }
+
+    void VisitCastExpr(const clang::CastExpr *Node)
+    {
+    }
+
+    void VisitDeclRefExpr(const clang::DeclRefExpr *Node)
+    {
+        error() << "decl ref" << Node->getLocation().printToString(*mSourceManager);
+        const clang::ValueDecl* decl = Node->getDecl();
+        if (decl)
+            error() << " -> " << getDeclName(decl) << getDeclLoc(decl, mSourceManager);
+    }
+
+    void VisitPredefinedExpr(const clang::PredefinedExpr *Node)
+    {
+    }
+
+    void VisitCharacterLiteral(const clang::CharacterLiteral *Node)
+    {
+    }
+
+    void VisitIntegerLiteral(const clang::IntegerLiteral *Node)
+    {
+    }
+
+    void VisitFloatingLiteral(const clang::FloatingLiteral *Node)
+    {
+    }
+
+    void VisitStringLiteral(const clang::StringLiteral *Str)
+    {
+    }
+
+    void VisitInitListExpr(const clang::InitListExpr *ILE)
+    {
+    }
+
+    void VisitUnaryOperator(const clang::UnaryOperator *Node)
+    {
+    }
+
+    void VisitUnaryExprOrTypeTraitExpr(const clang::UnaryExprOrTypeTraitExpr *Node)
+    {
+    }
+
+    void VisitMemberExpr(const clang::MemberExpr *Node)
+    {
+    }
+
+    void VisitExtVectorElementExpr(const clang::ExtVectorElementExpr *Node)
+    {
+    }
+
+    void VisitBinaryOperator(const clang::BinaryOperator *Node)
+    {
+    }
+
+    void VisitCompoundAssignOperator(const clang::CompoundAssignOperator *Node)
+    {
+    }
+
+    void VisitAddrLabelExpr(const clang::AddrLabelExpr *Node)
+    {
+    }
+
+    void VisitBlockExpr(const clang::BlockExpr *Node)
+    {
+    }
+
+    void VisitOpaqueValueExpr(const clang::OpaqueValueExpr *Node)
+    {
+    }
+
+    // C++
+    void VisitCXXNamedCastExpr(const clang::CXXNamedCastExpr *Node)
+    {
+    }
+
+    void VisitCXXBoolLiteralExpr(const clang::CXXBoolLiteralExpr *Node)
+    {
+    }
+
+    void VisitCXXThisExpr(const clang::CXXThisExpr *Node)
+    {
+    }
+
+    void VisitCXXFunctionalCastExpr(const clang::CXXFunctionalCastExpr *Node)
+    {
+    }
+
+    void VisitCXXConstructExpr(const clang::CXXConstructExpr *Node)
+    {
+    }
+
+    void VisitCXXBindTemporaryExpr(const clang::CXXBindTemporaryExpr *Node)
+    {
+    }
+
+    void VisitMaterializeTemporaryExpr(const clang::MaterializeTemporaryExpr *Node)
+    {
+    }
+
+    void VisitExprWithCleanups(const clang::ExprWithCleanups *Node)
+    {
+    }
+
+    void VisitUnresolvedLookupExpr(const clang::UnresolvedLookupExpr *Node)
+    {
+    }
+
+    void dumpCXXTemporary(const clang::CXXTemporary *Temporary)
+    {
+    }
+
+    void VisitLambdaExpr(const clang::LambdaExpr *Node)
+    {
+    }
+
+private:
+    const clang::SourceManager* mSourceManager;
+};
+
 class RTagsASTConsumer : public clang::ASTConsumer, public clang::RecursiveASTVisitor<RTagsASTConsumer>
 {
     typedef clang::RecursiveASTVisitor<RTagsASTConsumer> base;
@@ -82,6 +433,7 @@ public:
     void HandleTranslationUnit(clang::ASTContext &Context) override {
         clang::TranslationUnitDecl *D = Context.getTranslationUnitDecl();
         mSourceManager = &Context.getSourceManager();
+        mDeclVisitor.setSourceManager(mSourceManager);
         TraverseDecl(D);
     }
 
@@ -91,126 +443,12 @@ public:
         if (mAborted)
             return true;
         if (d) {
-            error() << getName(d) << d->getDeclKindName() << "at" << d->getLocation().printToString(*mSourceManager);;
-            if (clang::isa<clang::DeclaratorDecl>(d)) {
-                error() << "  is declarator";
-                clang::DeclaratorDecl* dd = clang::cast<clang::DeclaratorDecl>(d);
-                clang::TypeSourceInfo* info = dd->getTypeSourceInfo();
-                if (info) {
-                    const clang::Type* type = info->getType().getTypePtr();
-                    error() << "  has type" << type->getTypeClassName();
-                    const clang::CXXRecordDecl* cxx = type->getAsCXXRecordDecl();
-                    if (!cxx)
-                        cxx = type->getPointeeCXXRecordDecl();
-                    if (!cxx) {
-                        const clang::TemplateSpecializationType* spec = type->getAs<const clang::TemplateSpecializationType>();
-                        if (spec) {
-                            error() << "  is template spec";
-                            if (spec->isSugared()) {
-                                error() << "  is sugared";
-                            }
-                            clang::TemplateDecl* td = spec->getTemplateName().getAsTemplateDecl();
-                            if (td) {
-                                error() << "  " << getName(td) << td->getLocation().printToString(*mSourceManager);
-                            }
-                        }
-                    } else {
-                        error() << "  is cxx record";
-                        error() << "  " << cxx->getQualifiedNameAsString() << "at" << cxx->getInnerLocStart().printToString(*mSourceManager);
-                    }
-                }
-            }
-            switch (mClang->visit(d)) {
-            case Clang::Abort:
-                mAborted = true;
-                return true;
-            case Clang::SkipChildren:
-                return true;
-            case Clang::RecurseChildren:
-                break;
-            }
-            // bodl ShowColors = Out.has_colors();
-            // if (ShowColors)
-            //     Out.changeColor(raw_ostream::BLUE);
-            // Out << ((Dump || DumpLookups) ? "Dumping " : "Printing ") << getName(D)
-            //     << ":\n";
-            // if (ShowColors)
-            //     Out.resetColor();
-            // print(D);
-            // Out << "\n";
-            // Don't traverse child nodes to avoid output duplication.
-            // return true;
-
+            mDeclVisitor.visitDecl(d);
         }
         return base::TraverseDecl(d);
     }
 
-    bool TraverseStmt(clang::Stmt *s) {
-        if (mAborted)
-            return true;
-        if (s) {
-            const clang::SourceRange& range = s->getSourceRange();
-            if (range.isValid()) {
-                const clang::SourceLocation& begin = range.getBegin();
-                const clang::SourceLocation& end = range.getEnd();
-                const std::string b = begin.printToString(*mSourceManager);
-                const std::string e = end.printToString(*mSourceManager);
-                //error() << s->getStmtClassName();
-                switch (s->getStmtClass()) {
-                case clang::Stmt::DeclRefExprClass: {
-                    clang::DeclRefExpr* expr = static_cast<clang::DeclRefExpr*>(s);
-                    {
-                        clang::ValueDecl* decl = expr->getDecl();
-                        const std::string dl = decl->getLocation().printToString(*mSourceManager);
-                        error() << b << "points to" << decl->getQualifiedNameAsString() << "at" << dl;
-                    }
-                    if (clang::NestedNameSpecifier* spec = expr->getQualifier()) {
-                        do {
-                            switch (spec->getKind()) {
-                            case clang::NestedNameSpecifier::Identifier: {
-                                clang::IdentifierInfo* info = spec->getAsIdentifier();
-                                break; }
-                            case clang::NestedNameSpecifier::Namespace: {
-                                clang::NamespaceDecl* decl = spec->getAsNamespace();
-                                break; }
-                            case clang::NestedNameSpecifier::NamespaceAlias: {
-                                clang::NamespaceAliasDecl* decl = spec->getAsNamespaceAlias();
-                                break; }
-                            case clang::NestedNameSpecifier::TypeSpec:
-                            case clang::NestedNameSpecifier::TypeSpecWithTemplate: {
-                                const clang::Type* type = spec->getAsType();
-                                if (clang::CXXRecordDecl* cxx = type->getAsCXXRecordDecl()) {
-                                    error() << "  " << cxx->getQualifiedNameAsString() << "at" << cxx->getInnerLocStart().printToString(*mSourceManager);
-                                }
-                                break; }
-                            case clang::NestedNameSpecifier::Global:
-                                // nothing here
-                                break;
-#if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR >= 6)
-                            case clang::NestedNameSpecifier::Super: {
-                                error() << "  super";
-                                clang::CXXRecordDecl* decl = spec->getAsRecordDecl();
-                                break; }
-#endif
-                            }
-                            spec = spec->getPrefix();
-                        } while (spec);
-                        //error() << "  nested" << spec->
-                    }
-                    //s->dump();
-                    break; }
-                }
-            }
-        }
-        return base::TraverseStmt(s);
-    }
-
 private:
-    std::string getName(clang::Decl *D) {
-        if (clang::isa<clang::NamedDecl>(D))
-            return clang::cast<clang::NamedDecl>(D)->getQualifiedNameAsString();
-        return "";
-    }
     // void print(clang::Decl *D) {
         // if (DumpLookups) {
         //     if (clang::DeclContext *DC = clang::dyn_cast<clang::DeclContext>(D)) {
@@ -226,6 +464,7 @@ private:
         // else
         //     D->print(Out, /*Indentation=*/0, /*PrintInstantiation=*/true);
     // }
+    RTagsDeclVisitor mDeclVisitor;
     Clang *mClang;
     bool mAborted;
     const clang::SourceManager* mSourceManager;
