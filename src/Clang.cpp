@@ -158,11 +158,13 @@ public:
                             case clang::NestedNameSpecifier::Global:
                                 // nothing here
                                 break;
+#if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR >= 6)
                             case clang::NestedNameSpecifier::Super: {
                                 error() << "  super";
                                 clang::CXXRecordDecl* decl = spec->getAsRecordDecl();
                                 break; }
                             }
+#endif
                             spec = spec->getPrefix();
                         } while (spec);
                         //error() << "  nested" << spec->
