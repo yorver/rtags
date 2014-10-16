@@ -81,6 +81,7 @@ public:
 
     void HandleTranslationUnit(clang::ASTContext &Context) override {
         clang::TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        mSourceManager = &Context.getSourceManager();
         TraverseDecl(D);
     }
 
@@ -90,7 +91,7 @@ public:
         if (mAborted)
             return true;
         if (d) {
-            error() << getName(d);
+            //error() << getName(d);
             switch (mClang->visit(d)) {
             case Clang::Abort:
                 mAborted = true;
@@ -116,6 +117,69 @@ public:
         return base::TraverseDecl(d);
     }
 
+    bool TraverseStmt(clang::Stmt *s) {
+        if (mAborted)
+            return true;
+        if (s) {
+            const clang::SourceRange& range = s->getSourceRange();
+            if (range.isValid()) {
+                const clang::SourceLocation& begin = range.getBegin();
+                const clang::SourceLocation& end = range.getEnd();
+                const std::string b = begin.printToString(*mSourceManager);
+                const std::string e = end.printToString(*mSourceManager);
+                //error() << s->getStmtClassName();
+                switch (s->getStmtClass()) {
+                case clang::Stmt::DeclRefExprClass: {
+                    clang::DeclRefExpr* expr = static_cast<clang::DeclRefExpr*>(s);
+                    {
+                        clang::ValueDecl* decl = expr->getDecl();
+                        const std::string dl = decl->getLocation().printToString(*mSourceManager);
+                        error() << b << "points to" << decl->getQualifiedNameAsString() << "at" << dl;
+                    }
+                    if (clang::NestedNameSpecifier* spec = expr->getQualifier()) {
+                        do {
+                            switch (spec->getKind()) {
+                            case clang::NestedNameSpecifier::Identifier: {
+                                clang::IdentifierInfo* info = spec->getAsIdentifier();
+                                break; }
+                            case clang::NestedNameSpecifier::Namespace: {
+                                clang::NamespaceDecl* decl = spec->getAsNamespace();
+                                break; }
+                            case clang::NestedNameSpecifier::NamespaceAlias: {
+                                clang::NamespaceAliasDecl* decl = spec->getAsNamespaceAlias();
+                                break; }
+                            case clang::NestedNameSpecifier::TypeSpec:
+                            case clang::NestedNameSpecifier::TypeSpecWithTemplate: {
+                                const clang::Type* type = spec->getAsType();
+                                if (clang::CXXRecordDecl* cxx = type->getAsCXXRecordDecl()) {
+                                    error() << "  " << cxx->getQualifiedNameAsString() << "at" << cxx->getInnerLocStart().printToString(*mSourceManager);
+                                }
+                                break; }
+                            case clang::NestedNameSpecifier::Global:
+                                // nothing here
+                                break;
+                            case clang::NestedNameSpecifier::Super: {
+                                error() << "  super";
+                                clang::CXXRecordDecl* decl = spec->getAsRecordDecl();
+                                break; }
+                            }
+                            spec = spec->getPrefix();
+                        } while (spec);
+                        //error() << "  nested" << spec->
+                    }
+                    //s->dump();
+                    break; }
+                }
+            }
+        }
+        return base::TraverseStmt(s);
+    }
+
+    bool TraverseTypeLoc(clang::TypeLoc tl)
+    {
+        return base::TraverseTypeLoc(tl);
+    }
+
 private:
     std::string getName(clang::Decl *D) {
         if (clang::isa<clang::NamedDecl>(D))
@@ -139,6 +203,7 @@ private:
     // }
     Clang *mClang;
     bool mAborted;
+    const clang::SourceManager* mSourceManager;
 };
 
 class RTagsFrontendAction : public clang::ASTFrontendAction
