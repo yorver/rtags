@@ -91,7 +91,35 @@ public:
         if (mAborted)
             return true;
         if (d) {
-            //error() << getName(d);
+            error() << getName(d) << d->getDeclKindName() << "at" << d->getLocation().printToString(*mSourceManager);;
+            if (clang::isa<clang::DeclaratorDecl>(d)) {
+                error() << "  is declarator";
+                clang::DeclaratorDecl* dd = clang::cast<clang::DeclaratorDecl>(d);
+                clang::TypeSourceInfo* info = dd->getTypeSourceInfo();
+                if (info) {
+                    const clang::Type* type = info->getType().getTypePtr();
+                    error() << "  has type" << type->getTypeClassName();
+                    const clang::CXXRecordDecl* cxx = type->getAsCXXRecordDecl();
+                    if (!cxx)
+                        cxx = type->getPointeeCXXRecordDecl();
+                    if (!cxx) {
+                        const clang::TemplateSpecializationType* spec = type->getAs<const clang::TemplateSpecializationType>();
+                        if (spec) {
+                            error() << "  is template spec";
+                            if (spec->isSugared()) {
+                                error() << "  is sugared";
+                            }
+                            clang::TemplateDecl* td = spec->getTemplateName().getAsTemplateDecl();
+                            if (td) {
+                                error() << "  " << getName(td) << td->getLocation().printToString(*mSourceManager);
+                            }
+                        }
+                    } else {
+                        error() << "  is cxx record";
+                        error() << "  " << cxx->getQualifiedNameAsString() << "at" << cxx->getInnerLocStart().printToString(*mSourceManager);
+                    }
+                }
+            }
             switch (mClang->visit(d)) {
             case Clang::Abort:
                 mAborted = true;
@@ -175,11 +203,6 @@ public:
             }
         }
         return base::TraverseStmt(s);
-    }
-
-    bool TraverseTypeLoc(clang::TypeLoc tl)
-    {
-        return base::TraverseTypeLoc(tl);
     }
 
 private:
