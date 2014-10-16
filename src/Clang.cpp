@@ -163,8 +163,8 @@ public:
                                 error() << "  super";
                                 clang::CXXRecordDecl* decl = spec->getAsRecordDecl();
                                 break; }
-                            }
 #endif
+                            }
                             spec = spec->getPrefix();
                         } while (spec);
                         //error() << "  nested" << spec->
