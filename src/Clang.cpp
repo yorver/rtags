@@ -37,6 +37,52 @@ static inline std::string getDeclLoc(const clang::Decl *D, const clang::SourceMa
     return D->getLocStart().printToString(*sm);
 }
 
+static inline const clang::Decl* definition(const clang::Decl* decl)
+{
+    if (decl) {
+        if (clang::isa<clang::VarDecl>(decl)) {
+            const clang::VarDecl* vd = clang::cast<clang::VarDecl>(decl);
+            const clang::Decl* def = vd->getDefinition();
+            if (def)
+                decl = def;
+        }
+    }
+    return decl;
+}
+
+static inline std::string typeLocation(const clang::Type* t, const clang::SourceManager* sm)
+{
+    if (const clang::RecordType* ct = t->getAsStructureType()) {
+        return ct->getDecl()->getLocation().printToString(*sm);
+    } else if (const clang::RecordType* ct = t->getAsUnionType()) {
+        return ct->getDecl()->getLocation().printToString(*sm);
+    } else if (const clang::CXXRecordDecl* cxx = t->getAsCXXRecordDecl()) {
+        return cxx->getLocation().printToString(*sm);
+    } else if (const clang::CXXRecordDecl* cxx = t->getPointeeCXXRecordDecl()) {
+        return cxx->getLocation().printToString(*sm);
+    } else if (t->isPointerType()) {
+        const clang::SplitQualType st = t->getPointeeType().getSplitDesugaredType();
+        if (st.Ty && st.Ty != t)
+            return typeLocation(st.Ty, sm);
+    } else if (const clang::TemplateSpecializationType* tt = t->getAs<const clang::TemplateSpecializationType>()) {
+        if (clang::TemplateDecl* d = tt->getTemplateName().getAsTemplateDecl()) {
+            return d->getLocation().printToString(*sm);
+        }
+    } else if (t->isLValueReferenceType() || t->isRValueReferenceType()) {
+        const clang::SplitQualType st = t->getCanonicalTypeUnqualified().getNonReferenceType().split();
+        if (st.Ty && st.Ty != t)
+            return typeLocation(st.Ty, sm);
+    } else {
+        // try the canonical type if it's different from ourselves
+        const clang::CanQualType ct = t->getCanonicalTypeUnqualified();
+        const clang::SplitQualType st = ct.split();
+        if (st.Ty && st.Ty != t)
+            return typeLocation(st.Ty, sm);
+    }
+    //error() << "unhandled type" << t->getTypeClassName();
+    return std::string();
+}
+
 class RTagsCompilationDatabase : public clang::tooling::CompilationDatabase
 {
 public:
@@ -100,11 +146,15 @@ public:
 
     void visitDecl(const clang::Decl* d)
     {
-        clang::ConstDeclVisitor<RTagsDeclVisitor>::Visit(d);
+        if (d)
+            clang::ConstDeclVisitor<RTagsDeclVisitor>::Visit(d);
     }
 
     void visitStmt(const clang::Stmt* s)
     {
+        if (!s)
+            return;
+        //error() << "stmt" << s->getStmtClassName();
         if (const clang::DeclStmt *DS = clang::dyn_cast<clang::DeclStmt>(s)) {
             VisitDeclStmt(DS);
             return;
@@ -148,6 +198,24 @@ public:
 
     void VisitFunctionDecl(const clang::FunctionDecl *D)
     {
+        error() << "func decl" << getDeclName(D) << getDeclLoc(D, mSourceManager);
+        const clang::CXXConstructorDecl *C = clang::dyn_cast<clang::CXXConstructorDecl>(D);
+        if (C) {
+            for (clang::CXXConstructorDecl::init_const_iterator I = C->init_begin(), E = C->init_end(); I != E; ++I) {
+                // if (I + 1 == E)
+                //     lastChild();
+                const clang::CXXCtorInitializer* init = *I;
+                if (init->isAnyMemberInitializer()) {
+                    visitDecl(init->getAnyMember());
+                } else if (init->isBaseInitializer()) {
+#warning do stuff with getBaseClass()
+                } else if (init->isDelegatingInitializer()) {
+#warning do stuff with getTypeSourceInfo()
+                }
+                visitStmt(init->getInit());
+            }
+        }
+        visitStmt(D->getBody());
     }
 
     void VisitFieldDecl(const clang::FieldDecl *D)
@@ -160,9 +228,23 @@ public:
     void VisitVarDecl(const clang::VarDecl *D)
     {
         error() << "got var" << getDeclName(D) << getDeclLoc(D, mSourceManager);
+        const clang::QualType t = D->getType();
+        if (!t.isNull()) {
+            //const clang::SplitQualType st = t.getSplitDesugaredType();
+            const clang::SplitQualType st = t.getSplitDesugaredType();
+            error() << "  " << clang::QualType::getAsString(st);
+            if (st.Ty) {
+                error() << "    defined at" << typeLocation(st.Ty, mSourceManager);
+            }
+        }
+        const bool implicit = D->isImplicit();
+        if (implicit)
+            mImplicits.current.push_back({D, false});
         if (D->hasInit()) {
             visitStmt(D->getInit());
         }
+        if (implicit)
+            mImplicits.current.pop_back();
     }
 
     void VisitFileScopeAsmDecl(const clang::FileScopeAsmDecl *D)
@@ -303,14 +385,39 @@ public:
 
     void VisitCastExpr(const clang::CastExpr *Node)
     {
+        //error() << "cast to" << Node->getCastKindName();
     }
 
     void VisitDeclRefExpr(const clang::DeclRefExpr *Node)
     {
         error() << "decl ref" << Node->getLocation().printToString(*mSourceManager);
-        const clang::ValueDecl* decl = Node->getDecl();
-        if (decl)
-            error() << " -> " << getDeclName(decl) << getDeclLoc(decl, mSourceManager);
+        const clang::Decl* decl = definition(Node->getDecl());
+        if (decl) {
+            // resolve
+            while (decl->isImplicit()) {
+                std::map<const clang::Decl*, const clang::Decl*>::const_iterator it = mImplicits.all.find(decl);
+                if (it != mImplicits.all.end()) {
+                    decl = it->second;
+                } else {
+                    // not resolved yet
+                    break;
+                }
+            }
+
+            if (!mImplicits.current.empty()) {
+                Implicit& i = mImplicits.current.back();
+                if (!i.used) {
+                    i.used = true;
+                    mImplicits.all[i.decl] = decl;
+                }
+            }
+
+            // ### why doesn't the following line work?
+            //decl = definition(Node->getDecl());
+
+            assert(decl);
+            error() << " -> " << getDeclName(decl) << getDeclLoc(decl, mSourceManager) << decl->getDeclKindName();
+        }
     }
 
     void VisitPredefinedExpr(const clang::PredefinedExpr *Node)
@@ -347,6 +454,10 @@ public:
 
     void VisitMemberExpr(const clang::MemberExpr *Node)
     {
+        error() << "member expr" << Node->getExprLoc().printToString(*mSourceManager);
+        const clang::Decl* decl = definition(Node->getMemberDecl());
+        if (decl)
+            error() << " -> " << getDeclName(decl) << getDeclLoc(decl, mSourceManager) << decl->getDeclKindName();
     }
 
     void VisitExtVectorElementExpr(const clang::ExtVectorElementExpr *Node)
@@ -367,6 +478,19 @@ public:
 
     void VisitBlockExpr(const clang::BlockExpr *Node)
     {
+    }
+
+    void VisitCallExpr(const clang::CallExpr *Node)
+    {
+        error() << "call expr";
+        const clang::Decl* decl = Node->getCalleeDecl();
+        if (decl)
+            error() << " -> " << getDeclName(decl) << getDeclLoc(decl, mSourceManager) << decl->getDeclKindName();
+        const unsigned int n = Node->getNumArgs();
+        const clang::Expr* const* a = Node->getArgs();
+        for (unsigned int i = 0; i < n; ++i) {
+            visitStmt(a[i]);
+        }
     }
 
     void VisitOpaqueValueExpr(const clang::OpaqueValueExpr *Node)
@@ -420,6 +544,15 @@ public:
 
 private:
     const clang::SourceManager* mSourceManager;
+
+    struct Implicit {
+        const clang::VarDecl* decl;
+        bool used;
+    };
+    struct {
+        std::vector<Implicit> current;
+        std::map<const clang::Decl*, const clang::Decl*> all;
+    } mImplicits;
 };
 
 class RTagsASTConsumer : public clang::ASTConsumer, public clang::RecursiveASTVisitor<RTagsASTConsumer>
