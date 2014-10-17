@@ -237,14 +237,9 @@ public:
                 error() << "    defined at" << typeLocation(st.Ty, mSourceManager);
             }
         }
-        const bool implicit = D->isImplicit();
-        if (implicit)
-            mImplicits.current.push_back({D, false});
         if (D->hasInit()) {
             visitStmt(D->getInit());
         }
-        if (implicit)
-            mImplicits.current.pop_back();
     }
 
     void VisitFileScopeAsmDecl(const clang::FileScopeAsmDecl *D)
@@ -393,28 +388,6 @@ public:
         error() << "decl ref" << Node->getLocation().printToString(*mSourceManager);
         const clang::Decl* decl = definition(Node->getDecl());
         if (decl) {
-            // resolve
-            while (decl->isImplicit()) {
-                std::map<const clang::Decl*, const clang::Decl*>::const_iterator it = mImplicits.all.find(decl);
-                if (it != mImplicits.all.end()) {
-                    decl = it->second;
-                } else {
-                    // not resolved yet
-                    break;
-                }
-            }
-
-            if (!mImplicits.current.empty()) {
-                Implicit& i = mImplicits.current.back();
-                if (!i.used) {
-                    i.used = true;
-                    mImplicits.all[i.decl] = decl;
-                }
-            }
-
-            // ### why doesn't the following line work?
-            //decl = definition(Node->getDecl());
-
             assert(decl);
             error() << " -> " << getDeclName(decl) << getDeclLoc(decl, mSourceManager) << decl->getDeclKindName();
         }
@@ -544,15 +517,6 @@ public:
 
 private:
     const clang::SourceManager* mSourceManager;
-
-    struct Implicit {
-        const clang::VarDecl* decl;
-        bool used;
-    };
-    struct {
-        std::vector<Implicit> current;
-        std::map<const clang::Decl*, const clang::Decl*> all;
-    } mImplicits;
 };
 
 class RTagsASTConsumer : public clang::ASTConsumer, public clang::RecursiveASTVisitor<RTagsASTConsumer>
