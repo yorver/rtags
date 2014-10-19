@@ -91,6 +91,7 @@ set(RTAGS_SHARED_SOURCES
   RTags.cpp
   Clang.cpp
   ClangIndexer.cpp
+  ClangIndexerCXX.cpp
   CompilerManager.cpp
   CompletionThread.cpp
   CursorInfo.cpp
