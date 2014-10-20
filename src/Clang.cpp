@@ -629,7 +629,12 @@ public:
     void ExecuteAction() override
     {
         clang::Preprocessor& pre = getCompilerInstance().getPreprocessor();
-        pre.addPPCallbacks(std::unique_ptr<RTagsPPCallbacks>(new RTagsPPCallbacks(mClang, pre.getSourceManager())));
+        const clang::SourceManager& manager = pre.getSourceManager();
+#if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR >= 6)
+        pre.addPPCallbacks(std::unique_ptr<RTagsPPCallbacks>(new RTagsPPCallbacks(mClang, manager)));
+#else
+        pre.addPPCallbacks(new RTagsPPCallbacks(mClang, manager));
+#endif
         clang::ASTFrontendAction::ExecuteAction();
     }
 private:
