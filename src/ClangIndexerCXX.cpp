@@ -27,12 +27,30 @@
 #include <unistd.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <clang/Lex/Preprocessor.h>
+#include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/DeclVisitor.h>
 #include <clang/AST/StmtVisitor.h>
 #include <clang/AST/RecursiveASTVisitor.h>
+
+static inline Location createLocation(const clang::SourceLocation& loc, ClangIndexerCXX* indexer, bool* blocked = 0)
+{
+    const clang::SourceManager* sm = indexer->manager();
+    const clang::StringRef fn = sm->getFilename(loc);
+    const unsigned int l = sm->getSpellingLineNumber(loc);
+    const unsigned int c = sm->getSpellingColumnNumber(loc);
+    if (fn.empty()) {
+        // boo
+        if (*blocked)
+            *blocked = false;
+        return Location();
+    }
+    const Path path(fn.data(), fn.size());
+    return indexer->createLocation(path, l, c, blocked);
+}
 
 class RTagsCompilationDatabase : public clang::tooling::CompilationDatabase
 {
@@ -507,6 +525,32 @@ private:
     const clang::SourceManager* mSourceManager;
 };
 
+class RTagsPPCallbacks : public clang::PPCallbacks
+{
+public:
+    RTagsPPCallbacks(ClangIndexerCXX *clang, const clang::SourceManager& sm)
+        : mClang(clang), mSourceManager(sm)
+    {
+    }
+
+    virtual void InclusionDirective(clang::SourceLocation HashLoc,
+                                    const clang::Token& IncludeTok,
+                                    clang::StringRef FileName,
+                                    bool IsAngled,
+                                    clang::CharSourceRange FilenameRange,
+                                    const clang::FileEntry* File,
+                                    clang::StringRef SearchPath,
+                                    clang::StringRef RelativePath,
+                                    const clang::Module* Imported)
+    {
+        mClang->included(FileName.empty() ? Path() : Path(FileName.data(), FileName.size()), createLocation(HashLoc, mClang));
+    }
+
+private:
+    ClangIndexerCXX* mClang;
+    const clang::SourceManager& mSourceManager;
+};
+
 class RTagsFrontendAction : public clang::ASTFrontendAction
 {
 public:
@@ -524,6 +568,14 @@ public:
         return new RTagsASTConsumer(mClang);
     }
 #endif
+    void ExecuteAction() override
+    {
+        clang::Preprocessor& pre = getCompilerInstance().getPreprocessor();
+        const clang::SourceManager& manager = pre.getSourceManager();
+        mClang->setManager(manager);
+        pre.addPPCallbacks(std::unique_ptr<RTagsPPCallbacks>(new RTagsPPCallbacks(mClang, manager)));
+        clang::ASTFrontendAction::ExecuteAction();
+    }
 private:
     ClangIndexerCXX *mClang;
 };
@@ -755,6 +807,32 @@ bool ClangIndexerCXX::exec(const String &data)
     }
 
     return true;
+}
+
+void ClangIndexerCXX::included(const Path& file, const Location& from)
+{
+    const Location refLoc = createLocation(file, 1, 1);
+    if (!refLoc.isNull()) {
+        {
+            String include = "#include ";
+            const Path path = refLoc.path();
+            assert(mSource.fileId);
+            mData->dependencies[refLoc.fileId()].insert(mSource.fileId);
+            mData->symbolNames[(include + path)].insert(from);
+            mData->symbolNames[(include + path.fileName())].insert(from);
+        }
+        std::shared_ptr<CursorInfo> &info = mData->symbols[from];
+        if (!info)
+            info = std::make_shared<CursorInfo>();
+        info->targets.insert(refLoc);
+#warning fixme
+        //info->kind = cursor.kind;
+        info->definition = false;
+        info->symbolName = "#include " + String(file.fileName());
+        info->symbolLength = info->symbolName.size() + 2;
+        // this fails for things like:
+        // # include    <foobar.h>
+    }
 }
 
 void ClangIndexerCXX::onMessage(const std::shared_ptr<Message> &msg, Connection */*conn*/)

@@ -96,8 +96,8 @@ int main(int argc, char **argv)
         // fwrite(data.constData(), data.size(), 1, f);
         // fclose(f);
     }
-    //ClangIndexer indexer;
-    ClangIndexerCXX indexer;
+    ClangIndexer indexer;
+    //ClangIndexerCXX indexer;
     if (!indexer.exec(data)) {
         error() << "ClangIndexer error";
         return 3;

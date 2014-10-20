@@ -19,6 +19,9 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <clang/Basic/Version.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <clang/Lex/PPCallbacks.h>
+#include <clang/Lex/Preprocessor.h>
+#include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/FrontendActions.h>
 #include <clang/AST/ASTConsumer.h>
 #include <clang/AST/ASTContext.h>
@@ -567,6 +570,45 @@ private:
     const clang::SourceManager* mSourceManager;
 };
 
+class RTagsPPCallbacks : public clang::PPCallbacks
+{
+public:
+    RTagsPPCallbacks(Clang *clang, const clang::SourceManager& sm)
+        : mClang(clang), mSourceManager(sm)
+    {
+    }
+
+    virtual void FileChanged(clang::SourceLocation Loc,
+                             FileChangeReason Reason,
+                             clang::SrcMgr::CharacteristicKind FileType,
+                             clang::FileID PrevFID)
+    {
+        const clang::StringRef& fn = mSourceManager.getFilename(Loc);
+        if (fn.empty())
+            mCurrentFile.clear();
+        else
+            mCurrentFile = Path(fn.data(), fn.size());
+    }
+
+    virtual void InclusionDirective(clang::SourceLocation HashLoc,
+                                    const clang::Token& IncludeTok,
+                                    clang::StringRef FileName,
+                                    bool IsAngled,
+                                    clang::CharSourceRange FilenameRange,
+                                    const clang::FileEntry* File,
+                                    clang::StringRef SearchPath,
+                                    clang::StringRef RelativePath,
+                                    const clang::Module* Imported)
+    {
+        //error() << "included" << File->getName();
+    }
+
+private:
+    Clang* mClang;
+    Path mCurrentFile;
+    const clang::SourceManager& mSourceManager;
+};
+
 class RTagsFrontendAction : public clang::ASTFrontendAction
 {
 public:
@@ -584,6 +626,12 @@ public:
         return new RTagsASTConsumer(mClang);
     }
 #endif
+    void ExecuteAction() override
+    {
+        clang::Preprocessor& pre = getCompilerInstance().getPreprocessor();
+        pre.addPPCallbacks(std::unique_ptr<RTagsPPCallbacks>(new RTagsPPCallbacks(mClang, pre.getSourceManager())));
+        clang::ASTFrontendAction::ExecuteAction();
+    }
 private:
     Clang *mClang;
 };

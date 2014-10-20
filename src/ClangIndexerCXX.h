@@ -36,6 +36,13 @@ public:
     ~ClangIndexerCXX();
 
     bool exec(const String &data);
+
+    const clang::SourceManager* manager() { return mManager; }
+    void setManager(const clang::SourceManager& manager) { mManager = &manager; }
+    void included(const Path& file, const Location& from);
+
+    Location createLocation(const Path &file, unsigned int line, unsigned int col, bool *blocked = 0);
+
 private:
     bool parse();
     bool visit();
@@ -99,12 +106,11 @@ private:
     //         return Location();
     //     return createLocation(clang_getRangeStart(range), blocked);
     // }
-    Location createLocation(const Path &file, unsigned int line, unsigned int col, bool *blocked = 0);
     // String addNamePermutations(const CXCursor &cursor, const Location &location);
 
     void onMessage(const std::shared_ptr<Message> &msg, Connection *conn);
 
-    clang::SourceManager* mManager;
+    const clang::SourceManager* mManager;
 
     Path mProject;
     Source mSource;
