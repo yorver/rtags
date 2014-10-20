@@ -573,7 +573,11 @@ public:
         clang::Preprocessor& pre = getCompilerInstance().getPreprocessor();
         const clang::SourceManager& manager = pre.getSourceManager();
         mClang->setManager(manager);
+#if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR >= 6)
         pre.addPPCallbacks(std::unique_ptr<RTagsPPCallbacks>(new RTagsPPCallbacks(mClang, manager)));
+#else
+        pre.addPPCallbacks(new RTagsPPCallbacks(mClang, manager));
+#endif
         clang::ASTFrontendAction::ExecuteAction();
     }
 private:
