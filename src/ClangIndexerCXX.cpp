@@ -149,30 +149,15 @@ public:
         : mClang(clang), mAborted(false)
     {}
 
-    bool VisitCXXRecordDecl(CXXRecordDecl* Declaration)
+    bool VisitCXXRecordDecl(CXXRecordDecl* Decl)
     {
-        //error() << "got visit cxx record decl" << Declaration->getQualifiedNameAsString();
+        mClang->insertDeclaration(Decl);
         return true;
     }
-    // bool VisitPointerType(PointerType* Pointer)
-    // {
-    //     const QualType& qt = Pointer->getPointeeType();
-    //     error() << "pointer type" << QualType::getAsString(qt.split());
-    //     if (!qt.isNull()) {
-    //         SplitQualType split = qt.getSplitDesugaredType();
-    //         if (split != qt.split())
-    //             error() << "  " << QualType::getAsString(split);
-    //     }
-    //     //error() << "pointer type" << Pointer->getPointeeType().split().Ty->getTypeClassName();
-    //     //error() << "pointer type" << Pointer->getPointeeType().split().Quals.getAsString();
-    //     return true;
-    // }
-    bool VisitFieldDecl(FieldDecl* Field)
+
+    bool VisitFieldDecl(FieldDecl* Decl)
     {
-        mClang->insertDeclaration(Field);
-        // if (DeclarationName name = Field->getDeclName()) {
-            // mClang->addType(Field, Field->getNameAsString(), Field->getType());
-        // }
+        mClang->insertDeclaration(Decl);
         return true;
     }
 
@@ -215,9 +200,21 @@ public:
         return true;
     }
 
-    bool VisitVarDecl(VarDecl* Var)
+    bool VisitVarDecl(VarDecl* Decl)
     {
-        mClang->insertDeclaration(Var);
+        mClang->insertDeclaration(Decl);
+        return true;
+    }
+
+    bool VisitNamespaceDecl(NamespaceDecl* Decl)
+    {
+        mClang->insertDeclaration(Decl);
+        return true;
+    }
+
+    bool VisitNamespaceAliasDecl(NamespaceAliasDecl* Decl)
+    {
+        mClang->insertDeclaration(Decl);
         return true;
     }
 
@@ -540,7 +537,64 @@ void ClangIndexerCXX::onMessage(const std::shared_ptr<Message> &msg, Connection 
     EventLoop::eventLoop()->quit();
 }
 
-void ClangIndexerCXX::insertDeclaration(const DeclaratorDecl* decl)
+void ClangIndexerCXX::processNameSpecifier(const NestedNameSpecifier* specifier)
+{
+    do {
+        switch (specifier->getKind()) {
+        case NestedNameSpecifier::Identifier:
+            if (IdentifierInfo* info = specifier->getAsIdentifier())
+                error() << "  specifier" << info->getNameStart();
+            break;
+        case NestedNameSpecifier::Namespace:
+            if (NamespaceDecl* ns = specifier->getAsNamespace())
+                error() << "  specifier" << ns->getNameAsString();
+            break;
+        case NestedNameSpecifier::NamespaceAlias:
+            if (NamespaceAliasDecl* ns = specifier->getAsNamespaceAlias())
+                error() << "  specifier" << ns->getNameAsString();
+            break;
+        case NestedNameSpecifier::TypeSpec:
+        case NestedNameSpecifier::TypeSpecWithTemplate:
+            if (const Type* t = specifier->getAsType())
+                error() << "  specifier" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
+            break;
+        case NestedNameSpecifier::Global:
+            break;
+        }
+        specifier = specifier->getPrefix();
+    } while (specifier);
+}
+
+String ClangIndexerCXX::insertNamePermutations(const NamedDecl* decl, const Location& location)
+{
+    const DeclContext *Ctx = decl->getDeclContext();
+
+    typedef SmallVector<const DeclContext *, 8> ContextsTy;
+    ContextsTy Contexts;
+
+    // Collect contexts.
+    while (Ctx && isa<NamedDecl>(Ctx)) {
+        Contexts.push_back(Ctx);
+        Ctx = Ctx->getParent();
+    }
+
+#warning need to handle template arguments and function arguments here
+
+    const String ret = decl->getNameAsString();
+
+    String name = ret;
+    mData->symbolNames[name].insert(location);
+
+    for (ContextsTy::iterator I = Contexts.begin(), E = Contexts.end();
+         I != E; ++I) {
+        name.prepend(cast<NamedDecl>(*I)->getNameAsString() + "::");
+        mData->symbolNames[name].insert(location);
+    }
+
+    return ret;
+}
+
+void ClangIndexerCXX::insertDeclaration(const NamedDecl* decl)
 {
     if (!decl)
         return;
@@ -551,37 +605,22 @@ void ClangIndexerCXX::insertDeclaration(const DeclaratorDecl* decl)
     std::shared_ptr<CursorInfo> &info = mData->symbols[loc];
     if (!info)
         info = std::make_shared<CursorInfo>();
+
     if (!info->symbolLength) {
-        info->symbolName = decl->getNameAsString();
+        info->symbolName = insertNamePermutations(decl, loc); //decl->getNameAsString();
         info->symbolLength = info->symbolName.size();
         // traverse the decl, add names
-        error() << "declaration type" << QualType::getAsString(decl->getType().split());
-        if (NestedNameSpecifier* specifier = decl->getQualifier()) {
-            do {
-                switch (specifier->getKind()) {
-                case NestedNameSpecifier::Identifier:
-                    if (IdentifierInfo* info = specifier->getAsIdentifier())
-                        error() << "  specifier" << info->getNameStart();
-                    break;
-                case NestedNameSpecifier::Namespace:
-                    if (NamespaceDecl* ns = specifier->getAsNamespace())
-                        error() << "  specifier" << ns->getNameAsString();
-                    break;
-                case NestedNameSpecifier::NamespaceAlias:
-                    if (NamespaceAliasDecl* ns = specifier->getAsNamespaceAlias())
-                        error() << "  specifier" << ns->getNameAsString();
-                    break;
-                case NestedNameSpecifier::TypeSpec:
-                case NestedNameSpecifier::TypeSpecWithTemplate:
-                    if (const Type* t = specifier->getAsType())
-                        error() << "  specifier" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
-                    break;
-                case NestedNameSpecifier::Global:
-                    break;
-                }
-                specifier = specifier->getPrefix();
-            } while (specifier);
+        if (isa<TypeDecl>(decl)) {
+            if (const Type* t = cast<TypeDecl>(decl)->getTypeForDecl()) {
+                error() << "declaration type (TypeDecl)" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
+            }
         }
+        // if (isa<TagDecl>(decl)) {
+        //     const TagDecl* tag = cast<TagDecl>(decl);
+        //     error() << "  tag qualifier" << tag->getQualifier();
+        //     if (NestedNameSpecifier* specifier = tag->getQualifier())
+        //         processNameSpecifier(specifier);
+        // }
     }
 }
 

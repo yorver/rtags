@@ -28,7 +28,8 @@
 #include <clang/Basic/SourceManager.h>
 
 namespace clang {
-class DeclaratorDecl;
+class NamedDecl;
+class NestedNameSpecifier;
 };
 
 struct Unit;
@@ -47,8 +48,12 @@ public:
 
     Location createLocation(const Path &file, unsigned int line, unsigned int col, bool *blocked = 0);
 
-    void insertDeclaration(const clang::DeclaratorDecl* decl);
+    void insertDeclaration(const clang::NamedDecl* decl);
     void insertReference(const Location& from, const Location& to);
+
+private:
+    void processNameSpecifier(const clang::NestedNameSpecifier* specifier);
+    String insertNamePermutations(const clang::NamedDecl* decl, const Location& location);
 
 private:
     bool parse();
