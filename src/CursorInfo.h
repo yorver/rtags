@@ -203,8 +203,11 @@ inline void CursorInfo::serialize(T &s, const SymbolMap &t)
 {
     const uint32_t size = t.size();
     s << size;
-    for (const auto &it : t)
-        s << it.first << *it.second;
+#warning fixme
+    std::shared_ptr<CursorInfo> empty = std::make_shared<CursorInfo>();
+    for (const auto &it : t) {
+        s << it.first << (it.second ? *it.second : *empty);
+    }
 }
 
 template <typename T>

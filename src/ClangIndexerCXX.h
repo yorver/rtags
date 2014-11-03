@@ -27,6 +27,10 @@
 #include <clang/Basic/SourceLocation.h>
 #include <clang/Basic/SourceManager.h>
 
+namespace clang {
+class DeclaratorDecl;
+};
+
 struct Unit;
 class IndexData;
 class ClangIndexerCXX
@@ -42,6 +46,9 @@ public:
     void included(const Path& file, const Location& from);
 
     Location createLocation(const Path &file, unsigned int line, unsigned int col, bool *blocked = 0);
+
+    void insertDeclaration(const clang::DeclaratorDecl* decl);
+    void insertReference(const Location& from, const Location& to);
 
 private:
     bool parse();

@@ -96,11 +96,19 @@ int main(int argc, char **argv)
         // fwrite(data.constData(), data.size(), 1, f);
         // fclose(f);
     }
-    ClangIndexer indexer;
-    //ClangIndexerCXX indexer;
-    if (!indexer.exec(data)) {
-        error() << "ClangIndexer error";
-        return 3;
+
+    if (Path::exists("/tmp/clangindexercxx")) {
+        ClangIndexerCXX indexer;
+        if (!indexer.exec(data)) {
+            error() << "ClangIndexer error";
+            return 3;
+        }
+    } else {
+        ClangIndexer indexer;
+        if (!indexer.exec(data)) {
+            error() << "ClangIndexer error";
+            return 3;
+        }
     }
 
     return 0;
