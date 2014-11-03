@@ -253,11 +253,22 @@ Location ClangIndexer::createLocation(const Path &sourceFile, unsigned line, uns
     uint32_t id = Location::fileId(sourceFile);
     Path resolved;
     if (!id) {
-        resolved = sourceFile.resolved();
+        bool ok;
+        for (int i=0; i<4; ++i) {
+            resolved = sourceFile.resolved(Path::RealPath, Path(), &ok);
+            // if ok is false it means the file is gone, in case this happens
+            // during a git pull or something we'll give it a couple of chances.
+            if (ok)
+                break;
+            usleep(50000);
+        }
+        if (!ok)
+            return Location();
         id = Location::fileId(resolved);
         if (id)
             Location::set(sourceFile, id);
     }
+    assert(!resolved.contains("/../"));
 
     if (id) {
         if (blockedPtr) {
@@ -378,7 +389,7 @@ static inline void tokenize(const char *buf, int start,
     }
 }
 
-String ClangIndexer::addNamePermutations(const CXCursor &cursor, const Location &location)
+String ClangIndexer::addNamePermutations(const CXCursor &cursor, const Location &location, String type)
 {
     CXCursorKind kind = clang_getCursorKind(cursor);
     const CXCursorKind originalKind = kind;
@@ -426,16 +437,20 @@ String ClangIndexer::addNamePermutations(const CXCursor &cursor, const Location 
         }
     } while (RTags::needsQualifiers(kind));
 
-    String type;
-    switch (originalKind) {
-    case CXCursor_ClassDecl:
-    case CXCursor_StructDecl:
-    case CXCursor_ClassTemplate:
-        break;
-    default:
-        type = RTags::typeName(cursor);
-        break;
+    if (type.isEmpty()) {
+        switch (originalKind) {
+        case CXCursor_ClassDecl:
+        case CXCursor_StructDecl:
+        case CXCursor_ClassTemplate:
+            break;
+        default:
+            type = RTags::typeName(cursor);
+            break;
+        }
+    } else if (!type.isEmpty() && !type.endsWith('*') && !type.endsWith('&')) {
+        type.append(' ');
     }
+
     if (cutoff == -1)
         cutoff = pos;
 
@@ -949,7 +964,32 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
                 return false;
             }
         } else {
-            info->symbolName = addNamePermutations(cursor, location);
+            String typeOverride;
+            if (kind == CXCursor_VarDecl) {
+                const CXCursor typeRef = resolveAutoTypeRef(cursor);
+                if (!clang_equalCursors(typeRef, nullCursor)) {
+                    // const CXSourceRange range = clang_Cursor_getSpellingNameRange(mLastCursor, 0, 0);
+                    // error() << "Found" << typeRef << "for" << cursor << mLastCursor
+                    //         << createLocation(mLastCursor)
+                    //         << clang_Range_isNull(range)
+                    //         << createLocation(clang_getCursorLocation(mLastCursor));
+                    auto refInfo = handleReference(mLastCursor, CXCursor_TypeRef,
+                                                   createLocation(clang_getCursorLocation(mLastCursor)),
+                                                   clang_getCursorReferenced(typeRef), nullCursor);
+                    if (refInfo) {
+                        // the type is read from the cursor passed in and that won't
+                        // be correct in this case
+                        refInfo->type = clang_getCursorType(typeRef).kind;
+                        refInfo->symbolLength = 4;
+                        typeOverride = refInfo->symbolName;
+                        refInfo->symbolName += " (auto)";
+                        refInfo->endLine = info->startLine;
+                        refInfo->endColumn = info->startColumn + 4;
+                    }
+                }
+            }
+
+            info->symbolName = addNamePermutations(cursor, location, typeOverride);
         }
 
         CXSourceRange range = clang_getCursorExtent(cursor);
@@ -982,28 +1022,6 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
             mData->usrMap[usr].insert(location);
 
         switch (info->kind) {
-        case CXCursor_VarDecl: {
-            const CXCursor typeRef = resolveAutoTypeRef(cursor);
-            if (!clang_equalCursors(typeRef, nullCursor)) {
-                // const CXSourceRange range = clang_Cursor_getSpellingNameRange(mLastCursor, 0, 0);
-                // error() << "Found" << typeRef << "for" << cursor << mLastCursor
-                //         << createLocation(mLastCursor)
-                //         << clang_Range_isNull(range)
-                //         << createLocation(clang_getCursorLocation(mLastCursor));
-                auto info = handleReference(mLastCursor, CXCursor_TypeRef,
-                                            createLocation(clang_getCursorLocation(mLastCursor)),
-                                            clang_getCursorReferenced(typeRef), nullCursor);
-                if (info) {
-                    // the type is read from the cursor passed in and that won't
-                    // be correct in this case
-                    info->type = clang_getCursorType(typeRef).kind;
-                    info->symbolLength = 4;
-                    info->symbolName += " (auto)";
-                    info->endLine = info->startLine;
-                    info->endColumn = info->startColumn + 4;
-                }
-            }
-            break; }
         case CXCursor_Constructor:
         case CXCursor_Destructor: {
             Location parentLocation = createLocation(clang_getCursorSemanticParent(cursor));
@@ -1473,8 +1491,8 @@ void ClangIndexer::inclusionVisitor(CXFile includedFile,
 struct ResolveAutoTypeRefUserData
 {
     CXCursor ref;
-    // List<CXCursorKind> chain;
     int index;
+    // List<CXCursorKind> chain;
 };
 
 static CXChildVisitResult resolveAutoTypeRefVisitor(CXCursor cursor, CXCursor, CXClientData data)
@@ -1490,6 +1508,7 @@ static CXChildVisitResult resolveAutoTypeRefVisitor(CXCursor cursor, CXCursor, C
         // error() << "Found typeRef" << cursor;
         userData->ref = cursor;
         return CXChildVisit_Break;
+    case CXCursor_DeclRefExpr:
     case CXCursor_UnexposedExpr: {
         CXCursor ref = clang_getCursorReferenced(cursor);
         // error() << "got unexposed expr ref" << ref;
@@ -1497,7 +1516,7 @@ static CXChildVisitResult resolveAutoTypeRefVisitor(CXCursor cursor, CXCursor, C
         case CXCursor_VarDecl:
         case CXCursor_FunctionDecl:
         case CXCursor_CXXMethod: {
-            ResolveAutoTypeRefUserData u = { nullCursor, 0 };
+            ResolveAutoTypeRefUserData u = { nullCursor, 0 }; //, List<CXCursorKind>() };
             clang_visitChildren(ref, resolveAutoTypeRefVisitor, &u);
             // error() << "Visited for typeRef" << u.ref
             //         << clang_isInvalid(clang_getCursorKind(u.ref))
@@ -1523,7 +1542,7 @@ static CXChildVisitResult resolveAutoTypeRefVisitor(CXCursor cursor, CXCursor, C
 CXCursor ClangIndexer::resolveAutoTypeRef(const CXCursor &cursor) const
 {
     assert(clang_getCursorKind(cursor) == CXCursor_VarDecl);
-    ResolveAutoTypeRefUserData userData = { nullCursor, 0 };
+    ResolveAutoTypeRefUserData userData = { nullCursor, 0 }; //, List<CXCursorKind>() };
     clang_visitChildren(cursor, resolveAutoTypeRefVisitor, &userData);
     if (userData.index > 1) {
         if (!clang_equalCursors(userData.ref, nullCursor)) {

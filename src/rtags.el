@@ -34,6 +34,7 @@
 (require 'cc-mode)
 
 (if (or (> emacs-major-version 24)
+    (< emacs-major-version 23)
         (and (= emacs-major-version 24)
              (>= emacs-minor-version 3)))
     (progn
@@ -135,7 +136,8 @@
   (setq buffer-read-only t))
 
 (defun rtags-init-bookmarks()
-  (let ((buf (current-buffer)))
+  (let ((buf (current-buffer))
+        (opened-files))
     (goto-char (point-min))
     (while (not (eobp))
       (if (looking-at "^\\(.*?\\):\\([0-9]+\\):\\([0-9]+\\)")
@@ -150,10 +152,13 @@
                   (rtags-goto-line-col line column)
                   (incf rtags-buffer-bookmarks)
                   (bookmark-set (format "R_%d" rtags-buffer-bookmarks))
-                  (set-buffer buf)
                   (unless had-buffer
-                    (kill-buffer (get-file-buffer file))))))))
-      (forward-line))))
+                    (push (current-buffer) opened-files))
+                  (set-buffer buf))))))
+      (forward-line))
+    (while opened-files
+      (kill-buffer (car opened-files))
+      (setq opened-files (cdr opened-files)))))
 
 (defun rtags-reset-bookmarks ()
   (while (> rtags-buffer-bookmarks 0)
@@ -240,6 +245,14 @@
         (if (keywordp head) (rtags-remove-keyword-params (cdr tail))
           (cons head (rtags-remove-keyword-params tail))))))
 
+
+(defun rtags-combine-strings (list)
+  (let (ret)
+    (while list
+      (setq ret (if ret (car list) (concat ret " " (car list))))
+      (setq list (cdr list)))
+    ret))
+
 (defun* rtags-call-rc (&rest arguments
                              &key (path (buffer-file-name))
                              unsaved
@@ -290,7 +303,7 @@
                 (default-directory (push (concat "--current-file=" default-directory) arguments))
                 (t nil))
 
-          (rtags-log (concat rc " " (combine-and-quote-strings arguments)))
+          (rtags-log (concat rc " " (rtags-combine-strings arguments)))
           (let ((proc (cond ((and unsaved async)
                              (let ((proc (apply #'start-process "rc" (current-buffer) rc arguments)))
                                (with-current-buffer unsaved
