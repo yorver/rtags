@@ -52,7 +52,6 @@ public:
     void insertReference(const Location& from, const Location& to);
 
 private:
-    void processNameSpecifier(const clang::NestedNameSpecifier* specifier);
     String insertNamePermutations(const clang::NamedDecl* decl, const Location& location);
 
 private:
