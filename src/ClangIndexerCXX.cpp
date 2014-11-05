@@ -87,7 +87,24 @@ static inline const Decl* getDeclForType(const Type* type)
     }
 }
 
-static void processNameSpecifier(const NestedNameSpecifier* specifier)
+static inline const Decl* getDeclForSpecifier(const NestedNameSpecifier* specifier)
+{
+    switch (specifier->getKind()) {
+    case NestedNameSpecifier::Identifier:
+    case NestedNameSpecifier::Namespace:
+        return specifier->getAsNamespace();
+    case NestedNameSpecifier::NamespaceAlias:
+        return specifier->getAsNamespaceAlias();
+    case NestedNameSpecifier::TypeSpec:
+    case NestedNameSpecifier::TypeSpecWithTemplate:
+        return getDeclForType(specifier->getAsType());
+    case NestedNameSpecifier::Global:
+        break;
+    }
+    return 0;
+}
+
+static void processNameSpecifier(const NestedNameSpecifier* specifier, ClangIndexerCXX* indexer)
 {
     if (!specifier)
         return;
@@ -95,20 +112,21 @@ static void processNameSpecifier(const NestedNameSpecifier* specifier)
         switch (specifier->getKind()) {
         case NestedNameSpecifier::Identifier:
             if (IdentifierInfo* info = specifier->getAsIdentifier())
-                error() << "  specifier" << info->getNameStart();
+                error() << "  specifier identifier" << info->getNameStart();
             break;
         case NestedNameSpecifier::Namespace:
-            if (NamespaceDecl* ns = specifier->getAsNamespace())
-                error() << "  specifier" << ns->getNameAsString();
+            if (NamespaceDecl* ns = specifier->getAsNamespace()) {
+                error() << "  specifier namespace" << ns->getNameAsString();
+            }
             break;
         case NestedNameSpecifier::NamespaceAlias:
             if (NamespaceAliasDecl* ns = specifier->getAsNamespaceAlias())
-                error() << "  specifier" << ns->getNameAsString();
+                error() << "  specifier alias" << ns->getNameAsString();
             break;
         case NestedNameSpecifier::TypeSpec:
         case NestedNameSpecifier::TypeSpecWithTemplate:
             if (const Type* t = specifier->getAsType())
-                error() << "  specifier" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
+                error() << "  specifier typespec" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
             break;
         case NestedNameSpecifier::Global:
             break;
@@ -234,7 +252,6 @@ public:
     bool VisitFieldDecl(FieldDecl* Decl)
     {
         mClang->insertDeclaration(Decl);
-        addTypeFor(Decl);
         return true;
     }
 
@@ -265,53 +282,202 @@ public:
     bool VisitParmVarDecl(ParmVarDecl* Decl)
     {
         mClang->insertDeclaration(Decl);
-        addTypeFor(Decl);
         return true;
     }
 
-    void addTypeFor(DeclaratorDecl* Decl)
-    {
-        // processNameSpecifier(Decl->getQualifier());
-        // const NestedNameSpecifierLoc specloc = Decl->getQualifierLoc();
-        // if (specloc) {
-        //     error() << "!!!got loc!";
-        // }
+    bool VisitQualifiedTypeLoc(QualifiedTypeLoc TL) {
+        error() << "VisitQualifiedTypeLoc";
+        return true;
+    }
 
-        const Type* type = Decl->getType().split().Ty;
-        if (type) {
-            // Get the Decl behind it if any
-            const clang::Decl* target = getDeclForType(type);
-            if (target) {
-                // print all typelocs
-                if (TypeSourceInfo* info = Decl->getTypeSourceInfo()) {
-                    TypeLoc loc = info->getTypeLoc();
-                    while (loc) {
-                        const clang::Decl* df = getDeclForType(loc.getType().split().Ty);
-                        if (df) {
-                            if (isa<DeclaratorDecl>(df)) {
-                                const DeclaratorDecl* bdfdf = cast<DeclaratorDecl>(df);
-                                processNameSpecifier(bdfdf->getQualifier());
-                            }
-                            if (isa<TagDecl>(df)) {
-                                const TagDecl* bdfdf = cast<TagDecl>(df);
-                                processNameSpecifier(bdfdf->getQualifier());
-                            }
+    bool VisitBuiltinTypeLoc(BuiltinTypeLoc TL) {
+        error() << "VisitBuiltinTypeLoc";
+        return true;
+    }
 
-                            error() << "!" << QualType::getAsString(loc.getType().split()) << createLocation(loc.getBeginLoc()) << createLocation(df->getLocation());
-                            loc = loc.getNextTypeLoc();
-                        }
-                    }
-                }
+    bool VisitTypedefTypeLoc(TypedefTypeLoc TL) {
+        error() << "VisitTypedefTypeLoc";
+        return true;
+    }
 
-                const Location refloc = createLocation(Decl->getTypeSpecStartLoc());
-                const Location typeloc = createLocation(target->getLocation());
-                mClang->insertReference(refloc, typeloc);
-            } else {
-                error() << "no decl for DeclaratorDecl" << QualType::getAsString(Decl->getType().split());
-            }
-        } else {
-            error() << "no type for DeclaratorDecl" << QualType::getAsString(Decl->getType().split());
+    bool VisitUnresolvedUsingTypeLoc(UnresolvedUsingTypeLoc TL) {
+        error() << "VisitUnresolvedUsingTypeLoc";
+        return true;
+    }
+
+    bool VisitTagTypeLoc(TagTypeLoc TL) {
+        const Location from = createLocation(TL.getNameLoc());
+        const Location to = createLocation(TL.getDecl()->getLocation());
+        mClang->insertReference(from, to);
+        error() << "VisitTagTypeLoc";
+        return true;
+    }
+
+    bool VisitTemplateTypeParmTypeLoc(TemplateTypeParmTypeLoc TL) {
+        error() << "VisitTemplateTypeParmTypeLoc";
+        return true;
+    }
+
+    bool VisitObjCInterfaceTypeLoc(ObjCInterfaceTypeLoc TL) {
+        error() << "VisitObjCInterfaceTypeLoc";
+        return true;
+    }
+
+    bool VisitObjCObjectTypeLoc(ObjCObjectTypeLoc TL) {
+        error() << "VisitObjCObjectTypeLoc";
+        return true;
+    }
+
+    bool VisitObjCObjectPointerTypeLoc(ObjCObjectPointerTypeLoc TL) {
+        error() << "VisitObjCObjectPointerTypeLoc";
+        return true;
+    }
+
+    bool VisitParenTypeLoc(ParenTypeLoc TL) {
+        error() << "VisitParenTypeLoc";
+        return true;
+    }
+
+    bool VisitPointerTypeLoc(PointerTypeLoc TL) {
+        error() << "VisitPointerTypeLoc";
+        return true;
+    }
+
+    bool VisitBlockPointerTypeLoc(BlockPointerTypeLoc TL) {
+        error() << "VisitBlockPointerTypeLoc";
+        return true;
+    }
+
+    bool VisitMemberPointerTypeLoc(MemberPointerTypeLoc TL) {
+        error() << "VisitMemberPointerTypeLoc";
+        return true;
+    }
+
+    bool VisitLValueReferenceTypeLoc(LValueReferenceTypeLoc TL) {
+        error() << "VisitLValueReferenceTypeLoc";
+        return true;
+    }
+
+    bool VisitRValueReferenceTypeLoc(RValueReferenceTypeLoc TL) {
+        error() << "VisitRValueReferenceTypeLoc";
+        return true;
+    }
+
+    bool VisitAttributedTypeLoc(AttributedTypeLoc TL) {
+        error() << "VisitAttributedTypeLoc";
+        return true;
+    }
+
+    bool VisitFunctionTypeLoc(FunctionTypeLoc TL) {
+        error() << "VisitFunctionTypeLoc";
+        return true;
+    }
+
+    bool VisitArrayTypeLoc(ArrayTypeLoc TL) {
+        error() << "VisitArrayTypeLoc";
+        return true;
+    }
+
+    bool VisitDecayedTypeLoc(DecayedTypeLoc TL) {
+        error() << "VisitDecayedTypeLoc";
+        return true;
+    }
+
+    bool VisitAdjustedTypeLoc(AdjustedTypeLoc TL) {
+        error() << "VisitAdjustedTypeLoc";
+        return true;
+    }
+
+    bool VisitTemplateSpecializationTypeLoc(TemplateSpecializationTypeLoc TL) {
+        error() << "VisitTemplateSpecializationTypeLoc";
+        return true;
+    }
+
+    bool VisitTypeOfExprTypeLoc(TypeOfExprTypeLoc TL) {
+        error() << "VisitTypeOfExprTypeLoc";
+        return true;
+    }
+
+    bool VisitTypeOfTypeLoc(TypeOfTypeLoc TL) {
+        error() << "VisitTypeOfTypeLoc";
+        return true;
+    }
+
+    bool VisitUnaryTransformTypeLoc(UnaryTransformTypeLoc TL) {
+        error() << "VisitUnaryTransformTypeLoc";
+        return true;
+    }
+
+    bool VisitDependentNameTypeLoc(DependentNameTypeLoc TL) {
+        if (VisitNestedNameSpecifierLoc(TL.getQualifierLoc()))
+            return true;
+        error() << "VisitDependentNameTypeLoc";
+        return true;
+    }
+
+    bool VisitTemplateArgumentLoc(const TemplateArgumentLoc &TAL) {
+        switch (TAL.getArgument().getKind()) {
+        case TemplateArgument::Template:
+        case TemplateArgument::TemplateExpansion:
+            if (VisitNestedNameSpecifierLoc(TAL.getTemplateQualifierLoc()))
+                return true;
         }
+    }
+
+    bool VisitDependentTemplateSpecializationTypeLoc(DependentTemplateSpecializationTypeLoc TL) {
+        if (TL.getQualifierLoc() &&
+            VisitNestedNameSpecifierLoc(TL.getQualifierLoc()))
+            return true;
+        // Visit the template arguments.
+        for (unsigned I = 0, N = TL.getNumArgs(); I != N; ++I)
+            if (VisitTemplateArgumentLoc(TL.getArgLoc(I)))
+                return true;
+        error() << "VisitDependentTemplateSpecializationTypeLoc";
+        return true;
+    }
+
+    bool VisitNestedNameSpecifierLoc(NestedNameSpecifierLoc TL)
+    {
+        if (!TL)
+            return false;
+        //processNameSpecifier(TL.getNestedNameSpecifier(), this);
+        error() << "VisitNestedNameSpecifierLoc";
+        do {
+            if (const Decl* decl = getDeclForSpecifier(TL.getNestedNameSpecifier())) {
+                const Location from = createLocation(TL.getLocalBeginLoc());
+                const Location to = createLocation(decl->getLocation());
+                mClang->insertReference(from, to);
+            }
+            TL = TL.getPrefix();
+        } while (TL);
+        return true;
+    }
+
+    bool VisitElaboratedTypeLoc(ElaboratedTypeLoc TL) {
+        if (VisitNestedNameSpecifierLoc(TL.getQualifierLoc()))
+            return true;
+        error() << "VisitElaboratedTypeLoc";
+        return true;
+    }
+
+    bool VisitPackExpansionTypeLoc(PackExpansionTypeLoc TL) {
+        error() << "VisitPackExpansionTypeLoc";
+        return true;
+    }
+
+    bool VisitDecltypeTypeLoc(DecltypeTypeLoc TL) {
+        error() << "VisitDecltypeTypeLoc";
+        return true;
+    }
+
+    bool VisitInjectedClassNameTypeLoc(InjectedClassNameTypeLoc TL) {
+        error() << "VisitInjectedClassNameTypeLoc";
+        return true;
+    }
+
+    bool VisitAtomicTypeLoc(AtomicTypeLoc TL) {
+        error() << "VisitAtomicTypeLoc";
+        return true;
     }
 
     bool VisitDeclRefExpr(DeclRefExpr* Expr)
@@ -320,7 +486,8 @@ public:
             return true;
 
         const Location loc = createLocation(Expr->getLocation());
-        assert(loc.isValid());
+        if (!loc.isValid())
+            return false;
 
         const ValueDecl* value = Expr->getDecl();
         if (value) {
@@ -345,7 +512,8 @@ public:
             return true;
 
         const Location loc = createLocation(Expr->getLocation());
-        assert(loc.isValid());
+        if (!loc.isValid())
+            return false;
         const CXXConstructorDecl* ctor = Expr->getConstructor();
         assert(ctor);
         mClang->insertDeclaration(ctor);
@@ -362,7 +530,8 @@ public:
             return true;
 
         const Location loc = createLocation(Expr->getMemberLoc());
-        assert(loc.isValid());
+        if (!loc.isValid())
+            return false;
         const ValueDecl* value = Expr->getMemberDecl();
         assert(value);
         mClang->insertDeclaration(value);
@@ -373,42 +542,16 @@ public:
         return true;
     }
 
-    bool VisitDeclaratorDecl(DeclaratorDecl *DD)
-    {
-        // unsigned NumParamList = DD->getNumTemplateParameterLists();
-        // for (unsigned i = 0; i < NumParamList; i++) {
-        //     TemplateParameterList* Params = DD->getTemplateParameterList(i);
-        //     // if (VisitTemplateParameters(Params)) {
-        //     //     printf("[%s:%d]: if (VisitTemplateParameters(Params)) {\n", __FILE__, __LINE__); fflush(stdout);
-        //     // }
-        // }
-
-        if (TypeSourceInfo *TSInfo = DD->getTypeSourceInfo()) {
-            printf("[%s:%d]: if (TypeSourceInfo *TSInfo = DD->getTypeSourceInfo())\n", __FILE__, __LINE__); fflush(stdout);
-        }
-
-        // Visit the nested-name-specifier, if present.
-        if (NestedNameSpecifierLoc QualifierLoc = DD->getQualifierLoc()) {
-            printf("[%s:%d]: if (NestedNameSpecifierLoc QualifierLoc = DD->getQualifierLoc())\n", __FILE__, __LINE__); fflush(stdout);
-        }
-        // if (VisitNestedNameSpecifierLoc(QualifierLoc))
-        //         return true;
-
-        return false;
-    }
-
     bool VisitVarDecl(VarDecl* Decl)
     {
-        VisitDeclaratorDecl(Decl);
-        printf("[%s:%d]: bool VisitVarDecl(VarDecl* Decl)\n", __FILE__, __LINE__); fflush(stdout);
+        // printf("[%s:%d]: bool VisitVarDecl(VarDecl* Decl)\n", __FILE__, __LINE__); fflush(stdout);
         mClang->insertDeclaration(Decl);
-        addTypeFor(Decl);
         return true;
     }
 
     bool VisitNamespaceDecl(NamespaceDecl* Decl)
     {
-        printf("[%s:%d]: bool VisitNamespaceDecl(NamespaceDecl* Decl)\n", __FILE__, __LINE__); fflush(stdout);
+        // printf("[%s:%d]: bool VisitNamespaceDecl(NamespaceDecl* Decl)\n", __FILE__, __LINE__); fflush(stdout);
         mClang->insertDeclaration(Decl);
         return true;
     }
@@ -427,6 +570,7 @@ public:
 
     bool shouldWalkTypesOfTypeLocs() const { return true; } // ### ???
     bool shouldVisitTemplateInstantiations() const { return true; }
+    bool shouldVisitImplicitCode() const { return true; }
 
 private:
     Location createLocation(const SourceLocation& loc, bool* blocked = 0)
@@ -773,7 +917,8 @@ void ClangIndexerCXX::insertDeclaration(const NamedDecl* decl)
         return;
 
     const Location loc = createLocation(decl->getLocation());
-    assert(loc.isValid());
+    if (!loc.isValid())
+        return;
 
     std::shared_ptr<CursorInfo> &info = mData->symbols[loc];
     if (!info)
@@ -785,7 +930,7 @@ void ClangIndexerCXX::insertDeclaration(const NamedDecl* decl)
         // traverse the decl, add names
         if (isa<TypeDecl>(decl)) {
             if (const Type* t = cast<TypeDecl>(decl)->getTypeForDecl()) {
-                error() << "declaration type (TypeDecl)" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
+                // error() << "declaration type (TypeDecl)" << QualType::getAsString(t->getCanonicalTypeUnqualified().split());
             }
         }
         // if (isa<TagDecl>(decl)) {
