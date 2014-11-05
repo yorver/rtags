@@ -383,10 +383,12 @@ public:
         return true;
     }
 
+#if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR >= 6)
     bool VisitAdjustedTypeLoc(AdjustedTypeLoc TL) {
         error() << "VisitAdjustedTypeLoc";
         return true;
     }
+#endif
 
     bool VisitTemplateSpecializationTypeLoc(TemplateSpecializationTypeLoc TL) {
         error() << "VisitTemplateSpecializationTypeLoc";
