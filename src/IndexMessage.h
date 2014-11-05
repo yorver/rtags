@@ -36,8 +36,13 @@ public:
     void setCompilationDatabaseDir(const Path &path) { mCompilationDatabaseDir = path; }
     const String &arguments() const { return mArgs; }
     void setArguments(const String &arguments) { mArgs = arguments; }
-    bool escape() const { return mEscape; }
-    void setEscape(bool escape) { mEscape = escape; }
+    enum Flag {
+        None = 0x0,
+        Escape = 0x1,
+        ForceCXX = 0x2
+    };
+    unsigned int indexFlags() const { return mIndexFlags; }
+    void setIndexFlags(unsigned int flags) { mIndexFlags = flags; }
 
     virtual void encode(Serializer &serializer) const;
     virtual void decode(Deserializer &deserializer);
@@ -46,7 +51,7 @@ private:
     String mArgs;
     Path mProjectRoot;
     Path mCompilationDatabaseDir;
-    bool mEscape;
+    unsigned int mIndexFlags;
 };
 
 #endif

@@ -35,6 +35,7 @@
 #include <clang/AST/CommentVisitor.h>
 #include <clang/AST/DeclVisitor.h>
 #include <clang/AST/StmtVisitor.h>
+#include <clang/AST/TypeLocVisitor.h>
 #include <clang/AST/TypeVisitor.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 
@@ -202,7 +203,9 @@ private:
     const SourceManager& mSourceManager;
 };
 
-class RTagsASTConsumer : public ASTConsumer, public RecursiveASTVisitor<RTagsASTConsumer>
+class RTagsASTConsumer : public ASTConsumer,
+                         public RecursiveASTVisitor<RTagsASTConsumer>//,
+                         // public TypeLocVisitor<RTagsASTConsumer, bool>
 {
     typedef RecursiveASTVisitor<RTagsASTConsumer> base;
 public:
@@ -370,8 +373,34 @@ public:
         return true;
     }
 
+    bool VisitDeclaratorDecl(DeclaratorDecl *DD)
+    {
+        // unsigned NumParamList = DD->getNumTemplateParameterLists();
+        // for (unsigned i = 0; i < NumParamList; i++) {
+        //     TemplateParameterList* Params = DD->getTemplateParameterList(i);
+        //     // if (VisitTemplateParameters(Params)) {
+        //     //     printf("[%s:%d]: if (VisitTemplateParameters(Params)) {\n", __FILE__, __LINE__); fflush(stdout);
+        //     // }
+        // }
+
+        if (TypeSourceInfo *TSInfo = DD->getTypeSourceInfo()) {
+            printf("[%s:%d]: if (TypeSourceInfo *TSInfo = DD->getTypeSourceInfo())\n", __FILE__, __LINE__); fflush(stdout);
+        }
+
+        // Visit the nested-name-specifier, if present.
+        if (NestedNameSpecifierLoc QualifierLoc = DD->getQualifierLoc()) {
+            printf("[%s:%d]: if (NestedNameSpecifierLoc QualifierLoc = DD->getQualifierLoc())\n", __FILE__, __LINE__); fflush(stdout);
+        }
+        // if (VisitNestedNameSpecifierLoc(QualifierLoc))
+        //         return true;
+
+        return false;
+    }
+
     bool VisitVarDecl(VarDecl* Decl)
     {
+        VisitDeclaratorDecl(Decl);
+        printf("[%s:%d]: bool VisitVarDecl(VarDecl* Decl)\n", __FILE__, __LINE__); fflush(stdout);
         mClang->insertDeclaration(Decl);
         addTypeFor(Decl);
         return true;
@@ -379,6 +408,7 @@ public:
 
     bool VisitNamespaceDecl(NamespaceDecl* Decl)
     {
+        printf("[%s:%d]: bool VisitNamespaceDecl(NamespaceDecl* Decl)\n", __FILE__, __LINE__); fflush(stdout);
         mClang->insertDeclaration(Decl);
         return true;
     }
@@ -498,7 +528,7 @@ bool ClangIndexerCXX::diagnose()
 
 bool ClangIndexerCXX::exec(const String &data)
 {
-    Deserializer deserializer(data);
+    Deserializer deserializer(data.constData() + 1, data.size() - 1);
     uint16_t protocolVersion;
     deserializer >> protocolVersion;
     if (protocolVersion != RTags::DatabaseVersion) {

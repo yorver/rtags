@@ -67,7 +67,7 @@ ClangIndexer::~ClangIndexer()
 
 bool ClangIndexer::exec(const String &data)
 {
-    Deserializer deserializer(data);
+    Deserializer deserializer(data.constData() + 1, data.size() - 1);
     uint16_t protocolVersion;
     deserializer >> protocolVersion;
     if (protocolVersion != RTags::DatabaseVersion) {

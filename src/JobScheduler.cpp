@@ -18,7 +18,7 @@ JobScheduler::~JobScheduler()
 
 void JobScheduler::add(const std::shared_ptr<IndexerJob> &job)
 {
-    assert(!(job->flags & ~IndexerJob::Type_Mask));
+    assert(!(job->flags & ~(IndexerJob::Type_Mask|IndexerJob::ForceCXX)));
     std::shared_ptr<Node> node(new Node({ job, 0, 0, 0 }));
     node->job = job;
     if (job->flags & IndexerJob::Dirty) {
@@ -93,7 +93,7 @@ void JobScheduler::startJobs()
 
 
         node->process = process;
-        assert(!(node->job->flags & ~IndexerJob::Type_Mask));
+        assert(!(node->job->flags & ~(IndexerJob::Type_Mask|IndexerJob::ForceCXX)));
         node->job->flags |= IndexerJob::Running;
         process->write(node->job->encode());
         mActiveByProcess[process] = node;

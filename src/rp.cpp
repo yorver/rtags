@@ -97,7 +97,7 @@ int main(int argc, char **argv)
         // fclose(f);
     }
 
-    if (Path::exists("/tmp/clangindexercxx")) {
+    if (Path::exists("/tmp/clangindexercxx") || data[0] == '\1') {
         ClangIndexerCXX indexer;
         if (!indexer.exec(data)) {
             error() << "ClangIndexer error";

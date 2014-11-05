@@ -22,6 +22,8 @@ String IndexerJob::encode() const
     {
         Serializer serializer(ret);
         serializer << static_cast<int>(0); // for size
+        const char forceCXX = flags & ForceCXX ? '\1' : '\0';
+        serializer.write(&forceCXX, 1);
         std::shared_ptr<Project> proj = Server::instance()->project(project);
         const Server::Options &options = Server::instance()->options();
         Source copy = source;

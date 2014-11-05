@@ -35,7 +35,8 @@ public:
         Running = 0x010,
         Crashed = 0x020,
         Aborted = 0x040,
-        Complete = 0x080
+        Complete = 0x080,
+        ForceCXX = 0x100
     };
 
     static String dumpFlags(unsigned int);

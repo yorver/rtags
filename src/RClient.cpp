@@ -59,6 +59,7 @@ enum OptionType {
     FindVirtuals,
     FixIts,
     FollowLocation,
+    ForceCXX,
     HasFileManager,
     Help,
     IMenu,
@@ -183,6 +184,7 @@ struct Option opts[] = {
     { SendDiagnostics, "send-diagnostics", 0, required_argument, "Only for debugging. Send data to all -g connections." },
     { DumpCompletions, "dump-completions", 0, no_argument, "Dump cached completions." },
     { Visit, "visit", 0, required_argument, "Visit using Clang C++ API (for testing)." },
+    { ForceCXX, "force-cxx", 0, no_argument, "Force cxx indexer." },
 
     { None, 0, 0, 0, "" },
     { None, 0, 0, 0, "Command flags:" },
@@ -375,37 +377,36 @@ public:
 class CompileCommand : public RCCommand
 {
 public:
-    CompileCommand(const Path &c, const String &a, RClient::EscapeMode e)
-        : RCCommand(), cwd(c), args(a), escapeMode(e)
+    CompileCommand(const Path &c, const String &a, RClient::EscapeMode e, bool f)
+        : RCCommand(), cwd(c), args(a), escapeMode(e), forceCXX(f)
     {}
-    CompileCommand(const Path &dir, RClient::EscapeMode e)
-        : RCCommand(), compilationDatabaseDir(dir), escapeMode(e)
+    CompileCommand(const Path &dir, RClient::EscapeMode e, bool f)
+        : RCCommand(), compilationDatabaseDir(dir), escapeMode(e), forceCXX(f)
     {}
 
-    const Path compilationDatabaseDir;
-    const Path cwd;
-    const String args;
-    const RClient::EscapeMode escapeMode;
     virtual bool exec(RClient *rc, Connection *connection)
     {
-        bool escape = false;
+        unsigned int flags = 0;
         switch (rc->mEscapeMode) {
         case RClient::Escape_Auto:
-            escape = (escapeMode == RClient::Escape_Do);
+            if (escapeMode == RClient::Escape_Do) {
+                flags |= IndexMessage::Escape;
+            }
             break;
         case RClient::Escape_Do:
-            escape = true;
+            flags |= IndexMessage::Escape;
             break;
         case RClient::Escape_Dont:
-            escape = false;
             break;
         }
+        if (forceCXX)
+            flags |= IndexMessage::ForceCXX;
         IndexMessage msg;
         msg.init(rc->argc(), rc->argv());
         msg.setWorkingDirectory(cwd);
-        msg.setEscape(escape);
         msg.setArguments(args);
         msg.setCompilationDatabaseDir(compilationDatabaseDir);
+        msg.setIndexFlags(flags);
         if (!rc->projectRoot().isEmpty())
             msg.setProjectRoot(rc->projectRoot());
 
@@ -415,6 +416,12 @@ public:
     {
         return ("IndexMessage " + cwd);
     }
+private:
+    const Path compilationDatabaseDir;
+    const Path cwd;
+    const String args;
+    const RClient::EscapeMode escapeMode;
+    const bool forceCXX;
 };
 
 RClient::RClient()
@@ -441,14 +448,14 @@ void RClient::addLog(int level)
     mCommands.append(std::shared_ptr<RCCommand>(new RdmLogCommand(level)));
 }
 
-void RClient::addCompile(const Path &cwd, const String &args, EscapeMode mode)
+void RClient::addCompile(const Path &cwd, const String &args, EscapeMode mode, bool forceCXX)
 {
-    mCommands.append(std::shared_ptr<RCCommand>(new CompileCommand(cwd, args, mode)));
+    mCommands.append(std::shared_ptr<RCCommand>(new CompileCommand(cwd, args, mode, forceCXX)));
 }
 
-void RClient::addCompile(const Path &dir, EscapeMode mode)
+void RClient::addCompile(const Path &dir, EscapeMode mode, bool forceCXX)
 {
-    mCommands.append(std::shared_ptr<RCCommand>(new CompileCommand(dir, mode)));
+    mCommands.append(std::shared_ptr<RCCommand>(new CompileCommand(dir, mode, forceCXX)));
 }
 
 int RClient::exec()
@@ -548,6 +555,7 @@ bool RClient::parse(int &argc, char **argv)
 
     Path logFile;
     unsigned logFlags = 0;
+    bool forceCXX = false;
 
     enum State {
         Parsing,
@@ -592,6 +600,9 @@ bool RClient::parse(int &argc, char **argv)
             break;
         case CompilationFlagsOnly:
             mQueryFlags |= QueryMessage::CompilationFlagsOnly;
+            break;
+        case ForceCXX:
+            forceCXX = true;
             break;
         case CompilationFlagsSplitLine:
             mQueryFlags |= QueryMessage::CompilationFlagsSplitLine;
@@ -933,7 +944,7 @@ bool RClient::parse(int &argc, char **argv)
                 fprintf(stderr, "no compile_commands.json file in %s\n", dir.constData());
                 return false;
             }
-            addCompile(dir, Escape_Auto);
+            addCompile(dir, Escape_Auto, forceCXX);
 #endif
             break; }
         case HasFileManager: {
@@ -992,10 +1003,10 @@ bool RClient::parse(int &argc, char **argv)
             if (args == "-" || args.isEmpty()) {
                 char buf[1024];
                 while (fgets(buf, sizeof(buf), stdin)) {
-                    addCompile(Path::pwd(), buf, Escape_Do);
+                    addCompile(Path::pwd(), buf, Escape_Do, forceCXX);
                 }
             } else {
-                addCompile(Path::pwd(), args, Escape_Dont);
+                addCompile(Path::pwd(), args, Escape_Dont, forceCXX);
             }
             break; }
         case IsIndexing:

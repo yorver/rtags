@@ -347,11 +347,11 @@ void Server::onNewMessage(const std::shared_ptr<Message> &message, Connection *c
     }
 }
 
-bool Server::index(const String &arguments, const Path &pwd, const Path &projectRootOverride, bool escape)
+bool Server::index(const String &arguments, const Path &pwd, const Path &projectRootOverride, unsigned int indexFlags)
 {
     Path unresolvedPath;
     unsigned int flags = Source::None;
-    if (escape)
+    if (indexFlags & IndexMessage::Escape)
         flags |= Source::Escape;
     List<Path> unresolvedPaths;
     List<Source> sources = Source::parse(arguments, pwd, flags, &unresolvedPaths);
@@ -392,7 +392,11 @@ bool Server::index(const String &arguments, const Path &pwd, const Path &project
             project->load();
             if (!mCurrentProject.lock())
                 setCurrentProject(project);
-            project->index(std::shared_ptr<IndexerJob>(new IndexerJob(source, IndexerJob::Compile, root)));
+            unsigned int indexerJobFlags = IndexerJob::Compile;
+            if (indexFlags & IndexMessage::ForceCXX)
+                indexerJobFlags |= IndexerJob::ForceCXX;
+            project->index(std::shared_ptr<IndexerJob>(new IndexerJob(source, indexerJobFlags, root)));
+
             ret = true;
         }
     }
@@ -430,7 +434,7 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, Co
                     args += " ";
             }
 
-            index(args, dir, message->projectRoot(), message->escape());
+            index(args, dir, message->projectRoot(), message->indexFlags());
         }
         clang_CompileCommands_dispose(cmds);
         clang_CompilationDatabase_dispose(db);
@@ -442,7 +446,7 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, Co
     }
 #endif
     const bool ret = index(message->arguments(), message->workingDirectory(),
-                           message->projectRoot(), message->escape());
+                           message->projectRoot(), message->indexFlags());
     if (conn)
         conn->finish(ret ? 0 : 1);
 }

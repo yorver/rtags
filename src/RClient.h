@@ -64,8 +64,8 @@ private:
         Escape_Dont
     };
 
-    void addCompile(const Path &cwd, const String &args, EscapeMode escapeMode);
-    void addCompile(const Path &dir, EscapeMode escapeMode);
+    void addCompile(const Path &cwd, const String &args, EscapeMode escapeMode, bool forceCXX);
+    void addCompile(const Path &dir, EscapeMode escapeMode, bool forceCXX);
 
     unsigned mQueryFlags;
     int mMax, mLogLevel, mTimeout, mMinOffset, mMaxOffset, mConnectTimeout, mBuildIndex;
