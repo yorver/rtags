@@ -558,7 +558,10 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
 
     mIndexData[indexData->key] = indexData;
     if (success) {
-        src->second.parsed = indexData->parseTime;
+        auto sourcesWriteScope = mSources.createWriteScope();
+        Source s = src->second;
+        s.parsed = indexData->parseTime;
+        src.setValue(s);
         error("[%3d%%] %d/%d %s %s.",
               static_cast<int>(round((double(idx) / double(mJobCounter)) * 100.0)), idx, mJobCounter,
               String::formatTime(time(0), String::Time).constData(),
@@ -603,11 +606,13 @@ static inline void markActive(SourceMap::iterator start, uint32_t buildId, const
         if (f != fileId)
             break;
 
+        Source source = start->second;
         if (b == buildId) {
-            start->second.flags |= Source::Active;
+            source.flags |= Source::Active;
         } else {
-            start->second.flags &= ~Source::Active;
+            source.flags &= ~Source::Active;
         }
+        start.setValue(source);
         ++start;
     }
 }
@@ -763,11 +768,17 @@ void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &ne
 
     const auto end = deps.end();
     for (auto it = deps.begin(); it != end; ++it) {
-        Set<uint32_t> &values = mDependencies[it->first];
-        if (values.isEmpty()) {
-            values = it->second;
+        auto cur = mDependencies.find(it->first);
+        if (cur == mDependencies.end()) {
+            mDependencies.set(it->first, it->second);
         } else {
-            values.unite(it->second);
+            Set<uint32_t> curValues = cur->second;
+
+            int count = 0;
+            curValues.unite(it->second, &count);
+            if (count) {
+                cur.setValue(curValues);
+            }
         }
         if (newFiles.isEmpty()) {
             newFiles = it->second;
@@ -873,16 +884,24 @@ int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
     return toIndex.size();
 }
 
-static inline int writeSymbolNames(const SymbolNameMapMemory&symbolNames, SymbolNameMap &current)
+static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, SymbolNameMap &current)
 {
     int ret = 0;
     auto it = symbolNames.begin();
     const auto end = symbolNames.end();
     while (it != end) {
-        Set<Location> &value = current[it->first];
-        int count = 0;
-        value.unite(it->second, &count);
-        ret += count;
+        auto cur = current.find(it->first);
+        if (cur == current.end()) {
+            current.set(it->first, it->second);
+        } else {
+            Set<Location> value = cur->second;
+            int count = 0;
+            value.unite(it->second, &count);
+            if (count) {
+                ret += count;
+                cur.setValue(value);
+            }
+        }
         ++it;
     }
     return ret;
@@ -893,10 +912,17 @@ static inline void joinCursors(SymbolMap &symbols, const Set<Location> &location
     for (auto it = locations.begin(); it != locations.end(); ++it) {
         const auto c = symbols.find(*it);
         if (c != symbols.end()) {
-            std::shared_ptr<CursorInfo> &cursorInfo = c->second;
+            std::shared_ptr<CursorInfo> cursorInfo = c->second;
+            bool changed = false;
+            assert(cursorInfo);
             for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
-                if (innerIt != it)
-                    cursorInfo->targets.insert(*innerIt);
+                if (innerIt != it && cursorInfo->targets.insert(*innerIt)) {
+                    changed = true;
+                }
+            }
+            if (changed) {
+                c.setValue(cursorInfo);
+#warning this is a little funky with leveldb and friends
             }
             // ### this is filthy, we could likely think of something better
         }

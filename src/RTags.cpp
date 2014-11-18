@@ -35,16 +35,17 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <mach-o/dyld.h>
 #endif
 
-namespace RTags {
-
-void dirtySymbolNames(SymbolNameMap &map, const Set<uint32_t> &dirty)
+template <typename T>
+static void dirtySymbolNamesOrUsr(T &map, const Set<uint32_t> &dirty)
 {
-    SymbolNameMap::iterator it = map.begin();
+    typename T::iterator it = map.begin();
     while (it != map.end()) {
-        Set<Location> &locations = it->second;
+        Set<Location> locations = it->second;
+        bool locationsDirty = false;
         Set<Location>::iterator i = locations.begin();
         while (i != locations.end()) {
             if (dirty.contains(i->fileId())) {
+                locationsDirty = true;
                 locations.erase(i++);
             } else {
                 ++i;
@@ -53,9 +54,19 @@ void dirtySymbolNames(SymbolNameMap &map, const Set<uint32_t> &dirty)
         if (locations.isEmpty()) {
             map.erase(it++);
         } else {
+            if (locationsDirty) {
+                it.setValue(locations);
+            }
             ++it;
         }
     }
+}
+
+namespace RTags {
+
+void dirtySymbolNames(SymbolNameMap &map, const Set<uint32_t> &dirty)
+{
+    dirtySymbolNamesOrUsr(map, dirty);
 }
 
 void dirtySymbols(SymbolMap &map, const Set<uint32_t> &dirty)
@@ -72,23 +83,7 @@ void dirtySymbols(SymbolMap &map, const Set<uint32_t> &dirty)
 }
 void dirtyUsr(UsrMap &map, const Set<uint32_t> &dirty)
 {
-    UsrMap::iterator it = map.begin();
-    while (it != map.end()) {
-        Set<Location> &locations = it->second;
-        Set<Location>::iterator i = locations.begin();
-        while (i != locations.end()) {
-            if (dirty.contains(i->fileId())) {
-                locations.erase(i++);
-            } else {
-                ++i;
-            }
-        }
-        if (locations.isEmpty()) {
-            map.erase(it++);
-        } else {
-            ++it;
-        }
-    }
+    dirtySymbolNamesOrUsr(map, dirty);
 }
 
 Path findAncestor(Path path, const char *fn, unsigned flags)
