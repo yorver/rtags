@@ -41,7 +41,7 @@ class RestoreThread : public Thread
 {
 public:
     RestoreThread(const std::shared_ptr<Project> &project)
-        : mPath(project->path()), mWeak(project)
+        : mPath(project->path()), mDBPath(project->dbPath()), mWeak(project)
     {
         setAutoDelete(true);
     }
@@ -73,34 +73,30 @@ public:
 
     bool restore()
     {
-        Path path = mPath;
-        RTags::encodePath(path);
-        const Path p = Server::instance()->options().dataDir + path + "/";
-
         String err;
-        if (!mSymbols.load(p + "symbols", RTags::DatabaseVersion, 0, &err)) {
+        if (!mSymbols.load(mDBPath + "symbols", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
-                error("Restore error %ssymbols: %s", p.constData(), err.constData());
+                error("Restore error %ssymbols: %s", mDBPath.constData(), err.constData());
             return false;
         }
-        if (!mSymbolNames.load(p + "symbolnames", RTags::DatabaseVersion, 0, &err)) {
+        if (!mSymbolNames.load(mDBPath + "symbolnames", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
-                error("Restore error %ssymbolnames: %s", p.constData(), err.constData());
+                error("Restore error %ssymbolnames: %s", mDBPath.constData(), err.constData());
             return false;
         }
-        if (!mSources.load(p + "sources", RTags::DatabaseVersion, 0, &err)) {
+        if (!mSources.load(mDBPath + "sources", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
-                error("Restore error %ssources: %s", p.constData(), err.constData());
-            return false;
-        }
-
-        DB<String, String> mGeneral;
-        if (!mGeneral.load(p + "general", RTags::DatabaseVersion, 0, &err)) {
-            if (!err.isEmpty())
-                error("Restore error %sgeneral: %s", p.constData(), err.constData());
+                error("Restore error %ssources: %s", mDBPath.constData(), err.constData());
             return false;
         }
 
+        if (!mGeneral.load(mDBPath + "db", RTags::DatabaseVersion, 0, &err)) {
+            if (!err.isEmpty())
+                error("Restore error %sgeneral: %s", mDBPath.constData(), err.constData());
+            return false;
+        }
+
+        auto writeScope = mDependencies.createWriteScope(); // we don't always need this one
         for (const auto &source : mSources) {
             mDependencies[source.second.fileId].insert(source.second.fileId);
             // if we save before finishing a sync we may have saved mSources
@@ -111,6 +107,7 @@ public:
     }
 
     const Path mPath;
+    const Path mDBPath;
     SymbolMap mSymbols;
     SymbolNameMap mSymbolNames;
     UsrMap mUsr;
@@ -294,7 +291,7 @@ public:
         return ret;
     }
 
-    DependencyMap mModified;
+    DependencyMapMemory mModified;
 };
 
 Project::Project(const Path &path)
@@ -334,7 +331,6 @@ void Project::updateContents(RestoreThread *thread)
     if (state() != Loading)
         return;
 
-    bool needsSave = false;
     std::unique_ptr<ComplexDirty> dirty;
     if (thread) {
         mSymbols = std::move(thread->mSymbols);
@@ -360,6 +356,7 @@ void Project::updateContents(RestoreThread *thread)
         }
 
         {
+            std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
             auto it = mDependencies.begin();
 
             while (it != mDependencies.end()) {
@@ -377,8 +374,10 @@ void Project::updateContents(RestoreThread *thread)
                         dirty.get()->insertDirtyFile(dependent);
                     }
 
+                    if (!dependenciesWriteScope)
+                        dependenciesWriteScope = mDependencies.createWriteScope();
+
                     mDependencies.erase(it++);
-                    needsSave = true;
                 }
                 else {
                     ++it;
@@ -386,6 +385,7 @@ void Project::updateContents(RestoreThread *thread)
             }
         }
 
+        std::shared_ptr<SourceMap::WriteScope> sourcesWriteScope;
         auto it = mSources.begin();
         while (it != mSources.end()) {
             const Source &source = it->second;
@@ -393,7 +393,8 @@ void Project::updateContents(RestoreThread *thread)
                 error() << source.sourceFile() << "seems to have disappeared";
                 dirty.get()->insertDirtyFile(source.fileId);
                 mSources.erase(it++);
-                needsSave = true;
+                if (!sourcesWriteScope)
+                    sourcesWriteScope = mSources.createWriteScope();
             } else {
                 ++it;
             }
@@ -401,8 +402,8 @@ void Project::updateContents(RestoreThread *thread)
     }
     List<std::shared_ptr<IndexerJob> > pendingJobs = std::move(mPendingJobs);
     mState = Loaded;
-    if ((!dirty || !startDirtyJobs(dirty.get())) && needsSave)
-        save();
+    if (dirty)
+        startDirtyJobs(dirty.get());
 
     for (const auto &job : pendingJobs) {
         assert(job);
@@ -618,6 +619,13 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         return;
     }
 
+    String err;
+    if (mSources.path().isEmpty() && !mSources.load(dbPath() + "sources", RTags::DatabaseVersion, SourceMap::Overwrite, &err)) {
+        error() << "Failed to open sources database" << err;
+        return;
+    }
+
+    auto writeScope = mSources.createWriteScope();
     if (job->flags & IndexerJob::Compile) {
         const auto &options = Server::instance()->options();
         if (options.options & Server::NoFileSystemWatch) {
@@ -671,10 +679,13 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         }
     }
 
-    auto writeScope = mSources.createWriteScope();
     Source &src = mSources[key];
     src = job->source;
     src.flags |= Source::Active;
+
+    if (!writeScope->flush(&err)) {
+        error() << "Failed to write to sources" << mSources.size() << err;
+    }
 
     std::shared_ptr<IndexerJob> &ref = mActiveJobs[key];
     if (ref) {
@@ -909,7 +920,7 @@ static inline void resolvePendingReferences(SymbolMap &symbols, const UsrMap &us
                 refUsrs.append(refUsr);
             }
         }
-        SymbolMap targets;
+        SymbolMapMemory targets;
         for (const String &refUsr : refUsrs) {
             const auto usr = usrs.find(refUsr);
             if (usr != usrs.end()) {
@@ -1105,7 +1116,7 @@ Set<Location> Project::locations(const String &symbolName, uint32_t fileId) cons
 {
     Set<Location> ret;
     if (fileId) {
-        const SymbolMap s = symbols(fileId);
+        const SymbolMapMemory s = symbols(fileId);
         for (auto it = s.begin(); it != s.end(); ++it) {
             if (!RTags::isReference(it->second->kind)
                 && (symbolName.isEmpty() || matchSymbolName(symbolName, it->second->symbolName, checkFunction(it->second->kind)))) {
@@ -1155,9 +1166,9 @@ List<RTags::SortedCursor> Project::sort(const Set<Location> &locations, unsigned
     return sorted;
 }
 
-SymbolMap Project::symbols(uint32_t fileId) const
+SymbolMapMemory Project::symbols(uint32_t fileId) const
 {
-    SymbolMap ret;
+    SymbolMapMemory ret;
     if (fileId) {
         for (auto it = mSymbols.lower_bound(Location(fileId, 1, 0));
              it != mSymbols.end() && it->first.fileId() == fileId; ++it) {
@@ -1205,6 +1216,34 @@ String Project::sync()
         return String();
     }
 
+    if (mSymbolNames.path().isEmpty()) {
+        const Path p = dbPath();
+
+        assert(mSymbols.path().isEmpty());
+        assert(mUsr.path().isEmpty());
+        assert(mDependencies.path().isEmpty());
+        assert(mFixIts.path().isEmpty());
+        String err;
+        const unsigned int flags = DB<String, String>::Overwrite;
+        if (!mSymbols.load(p + "symbols", RTags::DatabaseVersion, flags, &err)) {
+            error() << "Failed to open symbols database" << err;
+            return String();
+        }
+        if (!mSymbolNames.load(p + "symbolnames", RTags::DatabaseVersion, flags, &err)) {
+            error() << "Failed to open symbolnames database" << err;
+            return String();
+        }
+        if (mSources.path().isEmpty() && !mSources.load(p + "sources", RTags::DatabaseVersion, flags, &err)) {
+            error() << "Failed to open sources database" << err;
+            return String();
+        }
+
+        if (!mGeneral.load(p + "db", RTags::DatabaseVersion, flags, &err)) {
+            error() << "Failed to open sources database" << err;
+            return String();
+        }
+    }
+
     auto symbolNameWriteScope = mSymbolNames.createWriteScope();
     auto symbolsWriteScope = mSymbols.createWriteScope();
     auto usrScope = mUsr.createWriteScope();
@@ -1222,17 +1261,15 @@ String Project::sync()
     List<Hash<String, Set<Location> > *> pendingReferences;
     int symbols = 0;
     int symbolNames = 0;
-    {
-        for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
-            const std::shared_ptr<IndexData> &data = it->second;
-            addDependencies(data->dependencies, newFiles);
-            addFixIts(data->dependencies, data->fixIts);
-            if (!data->pendingReferenceMap.isEmpty())
-                pendingReferences.append(&data->pendingReferenceMap);
-            symbols += writeSymbols(data->symbols, mSymbols);
-            writeUsr(data->usrMap, mUsr, mSymbols);
-            symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
-        }
+    for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
+        const std::shared_ptr<IndexData> &data = it->second;
+        addDependencies(data->dependencies, newFiles);
+        addFixIts(data->dependencies, data->fixIts);
+        if (!data->pendingReferenceMap.isEmpty())
+            pendingReferences.append(&data->pendingReferenceMap);
+        symbols += writeSymbols(data->symbols, mSymbols);
+        writeUsr(data->usrMap, mUsr, mSymbols);
+        symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
     }
 
     for (const Hash<String, Set<Location> > *map : pendingReferences)
@@ -1240,6 +1277,9 @@ String Project::sync()
 
     for (auto it = newFiles.constBegin(); it != newFiles.constEnd(); ++it) {
         watch(Location::path(*it));
+    }
+    if (!symbolNameWriteScope->flush()) {
+        error() << "Failed to write symbol names" << mSymbolNames.path();
     }
     const int syncTime = sw.restart();
     save();
@@ -1255,4 +1295,12 @@ String Project::sync()
     mIndexData.clear();
     mTimer.start();
     return msg;
+}
+
+String Project::dbPath() const
+{
+    Path path = mPath;
+    RTags::encodePath(path);
+    const Path p = Server::instance()->options().dataDir + path + "/";
+    return p;
 }

@@ -61,6 +61,7 @@ public:
     std::shared_ptr<FileManager> fileManager;
 
     Path path() const { return mPath; }
+    String dbPath() const;
 
     bool match(const Match &match, bool *indexed = 0) const;
 
@@ -68,7 +69,7 @@ public:
     const SymbolNameMap &symbolNames() const { return mSymbolNames; }
 
     Set<Location> locations(const String &symbolName, uint32_t fileId = 0) const;
-    SymbolMap symbols(uint32_t fileId) const;
+    SymbolMapMemory symbols(uint32_t fileId) const;
     enum SortFlag {
         Sort_None = 0x0,
         Sort_DeclarationOnly = 0x1,

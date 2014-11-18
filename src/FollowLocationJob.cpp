@@ -38,7 +38,7 @@ int FollowLocationJob::execute()
         return 2;
     }
 
-    SymbolMap targets;
+    SymbolMapMemory targets;
     if (cursorInfo->kind == CXCursor_ObjCMessageExpr) {
         for (const auto &loc : cursorInfo->targets) {
             const auto target = map.value(loc);

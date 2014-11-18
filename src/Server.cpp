@@ -223,6 +223,10 @@ bool Server::init(const Options &options)
     if (!mDB.load(mOptions.dataDir + "db", RTags::DatabaseVersion, 0, &err)) {
         ok = false;
         error("Can't restore file ids: %s", err.constData());
+        if (!mDB.load(mOptions.dataDir + "db", RTags::DatabaseVersion, DB<String, String>::Overwrite, &err)) {
+            error("Can't create file ids db: %s", err.constData());
+            return false;
+        }
     } else {
         const String data = mDB.value("fileIds");
         if (data.isEmpty()) {
@@ -270,37 +274,23 @@ std::shared_ptr<Project> Server::addProject(const Path &path) // lock always hel
 int Server::reloadProjects()
 {
     mProjects.clear(); // ### could keep the ones that persist somehow
-    List<Path> projects = mOptions.dataDir.files(Path::File);
+    List<Path> projects = mOptions.dataDir.files(Path::Directory);
     const Path home = Path::home();
     for (int i=0; i<projects.size(); ++i) {
-        Path file = projects.at(i);
-        Path p = file.mid(mOptions.dataDir.size());
+        const Path path = projects.at(i);
+        Path p = path.mid(mOptions.dataDir.size());
+        if (!p.startsWith("_"))
+            continue;
+        p.chop(1);
         RTags::decodePath(p);
         if (p.isDir()) {
-            bool remove = false;
-            if (FILE *f = fopen(file.constData(), "r")) {
-                Deserializer in(f);
-                int version;
-                in >> version;
-
-                if (version == RTags::DatabaseVersion) {
-                    int fs;
-                    in >> fs;
-                    if (fs != Rct::fileSize(f)) {
-                        error("%s seems to be corrupted, refusing to restore. Removing.",
-                              file.constData());
-                        remove = true;
-                    } else {
-                        addProject(p);
-                    }
-                } else {
-                    remove = true;
-                    error() << file << "has wrong format. Got" << version << "expected" << RTags::DatabaseVersion << "Removing";
-                }
-                fclose(f);
-            }
-            if (remove) {
-                Path::rm(file);
+            DB<String, String> general;
+            String err;
+            if (general.load(path + "db", RTags::DatabaseVersion, 0, &err)) {
+                addProject(p);
+            } else {
+                error() << "Can't restore project:" << p << err << "Removing" << path;
+                // Rct::removeDirectory(path);
             }
         }
     }
@@ -1174,8 +1164,7 @@ void Server::removeProject(const std::shared_ptr<QueryMessage> &query, Connectio
             Path path = cur->first;
             conn->write<128>("%s project: %s", unload ? "Unloaded" : "Deleted", path.constData());
             if (!unload) {
-                RTags::encodePath(path);
-                Path::rm(mOptions.dataDir + path);
+                Rct::removeDirectory(cur->second->dbPath());
                 mProjects.erase(cur);
             }
         }
@@ -1472,7 +1461,11 @@ bool Server::saveFileIds()
     auto writeScope = mDB.createWriteScope();
     mDB["fileIds"] = data; // can this fail?
     mLastFileId = lastId;
-    return writeScope->flush();
+    if (!writeScope->flush()) {
+        error() << "Failed to save file ids" << mDB.path();
+        return false;
+    }
+    return true;
 }
 
 void Server::onUnload()
