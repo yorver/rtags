@@ -58,7 +58,7 @@ int ReferencesJob::execute()
                         continue;
                 }
                 if (queryFlags() & QueryMessage::AllReferences) {
-                    const Map<Location, std::shared_ptr<CursorInfo> > all = cursorInfo->allReferences(pos, map);
+                    const SymbolMapMemory all = cursorInfo->allReferences(pos, map);
 
                     bool classRename = false;
                     switch (cursorInfo->kind) {

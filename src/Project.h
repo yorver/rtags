@@ -128,8 +128,8 @@ private:
     void updateContents(RestoreThread *thread);
     void watch(const Path &file);
     void reloadFileManager();
-    void addDependencies(const Hash<uint32_t, Set<uint32_t> > &deps, Set<uint32_t> &newFiles);
-    void addFixIts(const Hash<uint32_t, Set<uint32_t> > &visited, const Hash<uint32_t, Set<uint32_t> > &fixIts);
+    void addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles);
+    void addFixIts(const DependencyMapMemory &visited, const FixItMapMemory &fixIts);
     int startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles = UnsavedFiles());
     bool save();
     void onSynced();
@@ -164,6 +164,7 @@ private:
     SourceMap mSources;
     Set<Path> mWatchedPaths;
     FixItMap mFixIts;
+    DB<String, String> mGeneral;
 
     Set<uint32_t> mSuspendedFiles;
 

@@ -57,10 +57,11 @@ public:
     }
 
     uint64_t parseTime, key;
-    Map<Location, std::shared_ptr<CursorInfo> > symbols;
-    Map<String, Set<Location> > symbolNames;
-    Hash<uint32_t, Set<uint32_t> > dependencies;
-    Hash<String, Set<Location> > usrMap, pendingReferenceMap;
+    SymbolMapMemory symbols;
+    SymbolNameMapMemory symbolNames;
+    DependencyMapMemory dependencies;
+    PendingReferenceMapMemory pendingReferenceMap;
+    UsrMapMemory usrMap;
     String message; // used as output for dump when flags & Dump
     Hash<uint32_t, Set<FixIt> > fixIts;
     String xmlDiagnostics;

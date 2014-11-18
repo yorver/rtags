@@ -28,7 +28,6 @@
 #include "IndexerJob.h"
 #include "Source.h"
 #include "DumpThread.h"
-#include "DataFile.h"
 #if CLANG_VERSION_MAJOR > 3 || (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR > 3)
 #include <clang-c/CXCompilationDatabase.h>
 #endif
@@ -218,19 +217,39 @@ bool Server::init(const Options &options)
 
     mJobScheduler.reset(new JobScheduler(mOptions.jobCount));
 
-    restoreFileIds();
     mUnixServer->newConnection().connect(std::bind(&Server::onNewConnection, this, std::placeholders::_1));
-    reloadProjects();
-    if (!(mOptions.options & NoStartupCurrentProject)) {
-        Path current = Path(mOptions.dataDir + ".currentProject").readAll(1024);
-        if (current.size() > 1) {
-            current.chop(1);
-            const auto project = mProjects.value(current);
-            if (!project) {
-                error() << "Can't restore project" << current;
-                unlink((mOptions.dataDir + ".currentProject").constData());
-            } else {
-                setCurrentProject(project);
+    String err;
+    bool ok = true;
+    if (!mDB.load(mOptions.dataDir + "db", RTags::DatabaseVersion, 0, &err)) {
+        ok = false;
+        error("Can't restore file ids: %s", err.constData());
+    } else {
+        const String data = mDB.value("fileIds");
+        if (data.isEmpty()) {
+            ok = false;
+            error("Can't restore file ids (empty)");
+        } else {
+            Deserializer deserializer(data);
+            Hash<Path, uint32_t> pathsToIds;
+            deserializer >> pathsToIds;
+            Location::init(pathsToIds);
+        }
+    }
+    if (!ok) {
+        clearProjects();
+    } else {
+        reloadProjects();
+        if (!(mOptions.options & NoStartupCurrentProject)) {
+            Path current = Path(mOptions.dataDir + ".currentProject").readAll(1024);
+            if (current.size() > 1) {
+                current.chop(1);
+                const auto project = mProjects.value(current);
+                if (!project) {
+                    error() << "Can't restore project" << current;
+                    unlink((mOptions.dataDir + ".currentProject").constData());
+                } else {
+                    setCurrentProject(project);
+                }
             }
         }
     }
@@ -1439,41 +1458,21 @@ void Server::handleVisitFileMessage(const std::shared_ptr<VisitFileMessage> &mes
     conn->send(msg);
 }
 
-void Server::restoreFileIds()
-{
-    const Path p = mOptions.dataDir + "fileids";
-    DataFile fileIdsFile(mOptions.dataDir + "fileids");
-    if (fileIdsFile.open(DataFile::Read)) {
-        Hash<Path, uint32_t> pathsToIds;
-        fileIdsFile >> pathsToIds;
-        Location::init(pathsToIds);
-    } else {
-        if (!fileIdsFile.error().isEmpty()) {
-            error("Can't restore file ids: %s", fileIdsFile.error().constData());
-        }
-        clearProjects();
-    }
-}
-
 bool Server::saveFileIds()
 {
     const uint32_t lastId = Location::lastId();
     if (mLastFileId == lastId)
         return true;
-    DataFile fileIdsFile(mOptions.dataDir + "fileids");
-    if (!fileIdsFile.open(DataFile::Write)) {
-        error("Can't save file ids: %s", fileIdsFile.error().constData());
-        return false;
-    }
     const Hash<Path, uint32_t> pathsToIds = Location::pathsToIds();
-    fileIdsFile << pathsToIds;
-    if (!fileIdsFile.flush()) {
-        error("Can't save file ids: %s", fileIdsFile.error().constData());
-        return false;
+    String data;
+    {
+        Serializer serializer(data);
+        serializer << pathsToIds;
     }
-
+    auto writeScope = mDB.createWriteScope();
+    mDB["fileIds"] = data; // can this fail?
     mLastFileId = lastId;
-    return true;
+    return writeScope->flush();
 }
 
 void Server::onUnload()

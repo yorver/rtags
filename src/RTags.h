@@ -33,7 +33,7 @@ class Database;
 class Project;
 namespace RTags {
 
-enum { DatabaseVersion = 51 };
+enum { DatabaseVersion = 52 };
 enum { ASTManifestVersion = 1 };
 
 enum {
@@ -57,12 +57,19 @@ void initMessages();
 
 class CursorInfo;
 typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
+typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMapMemory;
 typedef DB<String, Set<Location> > UsrMap;
+typedef Hash<String, Set<Location> > UsrMapMemory;
+typedef Hash<String, Set<Location> > PendingReferenceMapMemory;
 typedef DB<String, Set<Location> > SymbolNameMap;
+typedef Map<String, Set<Location> > SymbolNameMapMemory;
 typedef DB<uint32_t, Set<uint32_t> > DependencyMap;
+typedef Hash<uint32_t, Set<uint32_t> > DependencyMapMemory;
 typedef DB<uint64_t, Source> SourceMap;
-typedef Map<Path, Set<String> > FilesMap;
+typedef Hash<uint64_t, Source> SourceMapMemory;
 typedef DB<uint32_t, Set<FixIt> > FixItMap;
+typedef Hash<uint32_t, Set<FixIt> > FixItMapMemory;
+typedef Map<Path, Set<String> > FilesMap;
 typedef Hash<Path, String> UnsavedFiles;
 
 namespace RTags {

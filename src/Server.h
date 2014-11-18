@@ -27,6 +27,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <rct/List.h>
 #include <rct/Hash.h>
 #include <rct/String.h>
+#include <rct/DB.h>
 #include <rct/Timer.h>
 #include <rct/SocketServer.h>
 
@@ -107,7 +108,6 @@ public:
     void dumpJobs(Connection *conn);
     std::shared_ptr<JobScheduler> jobScheduler() const { return mJobScheduler; }
 private:
-   void restoreFileIds();
     bool index(const String &arguments, const Path &pwd, const Path &projectRootOverride, bool escape);
     void onNewConnection(SocketServer *server);
     void setCurrentProject(const std::shared_ptr<Project> &project, unsigned int queryFlags = 0);
@@ -181,6 +181,8 @@ private:
     std::shared_ptr<JobScheduler> mJobScheduler;
 
     CompletionThread *mCompletionThread;
+
+    DB<String, String> mDB;
 
     Signal<std::function<void()> > mIndexerMessageReceived;
 };

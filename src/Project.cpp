@@ -15,7 +15,6 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "Project.h"
 #include "FileManager.h"
-#include "DataFile.h"
 #include "IndexerJob.h"
 #include "RTags.h"
 #include "Server.h"
@@ -76,33 +75,32 @@ public:
     {
         Path path = mPath;
         RTags::encodePath(path);
-        const Path p = Server::instance()->options().dataDir + path;
-        DataFile file(p);
-        if (!file.open(DataFile::Read)) {
-            if (!file.error().isEmpty())
-                error("Restore error %s: %s", p.constData(), file.error().constData());
-            Path::rm(p);
-            return false;
-        }
+        const Path p = Server::instance()->options().dataDir + path + "/";
 
         String err;
-        if (!mSymbols.load(p + ".symbols", RTags::DatabaseVersion, 0, &err)) {
+        if (!mSymbols.load(p + "symbols", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
-                error("Restore error %s/.symbols: %s", p.constData(), err.constData());
+                error("Restore error %ssymbols: %s", p.constData(), err.constData());
             return false;
         }
-        if (!mSymbolNames.load(p + ".symbolnames", RTags::DatabaseVersion, 0, &err)) {
+        if (!mSymbolNames.load(p + "symbolnames", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
-                error("Restore error %s/.symbolnames: %s", p.constData(), err.constData());
+                error("Restore error %ssymbolnames: %s", p.constData(), err.constData());
             return false;
         }
-        if (!mSources.load(p + ".sources", RTags::DatabaseVersion, 0, &err)) {
+        if (!mSources.load(p + "sources", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
-                error("Restore error %s/.sources: %s", p.constData(), err.constData());
+                error("Restore error %ssources: %s", p.constData(), err.constData());
             return false;
         }
 
-        file >> mUsr >> mVisitedFiles;
+        DB<String, String> mGeneral;
+        if (!mGeneral.load(p + "general", RTags::DatabaseVersion, 0, &err)) {
+            if (!err.isEmpty())
+                error("Restore error %sgeneral: %s", p.constData(), err.constData());
+            return false;
+        }
+
         for (const auto &source : mSources) {
             mDependencies[source.second.fileId].insert(source.second.fileId);
             // if we save before finishing a sync we may have saved mSources
@@ -118,7 +116,7 @@ public:
     UsrMap mUsr;
     DependencyMap mDependencies;
     SourceMap mSources;
-    Hash<uint32_t, Path> mVisitedFiles;
+    DB<String, String> mGeneral;
     std::weak_ptr<Project> mWeak;
 };
 
@@ -260,7 +258,7 @@ public:
         return ret;
     }
 
-    Hash<uint32_t, Set<uint32_t> > mReversedDependencies;
+    DependencyMapMemory mReversedDependencies;
     Match mMatch;
 };
 
@@ -344,12 +342,17 @@ void Project::updateContents(RestoreThread *thread)
         mUsr = std::move(thread->mUsr);
         mDependencies = std::move(thread->mDependencies);
         mSources = std::move(thread->mSources);
+        mGeneral = std::move(thread->mGeneral);
+        const String visited = mGeneral.value("visitedFiles");
+        if (!visited.isEmpty()) {
+            Deserializer deserializer(visited);
+            deserializer >> mVisitedFiles;
+        }
 
-        for (const auto& dep : mDependencies) {
+        for (const auto &dep : mDependencies) {
             watch(Location::path(dep.first));
         }
 
-        mVisitedFiles = std::move(thread->mVisitedFiles);
         if (Server::instance()->suspended()) {
             dirty.reset(new SuspendedDirty);
         } else {
@@ -567,22 +570,14 @@ bool Project::save()
         return false;
     }
 
-    Path srcPath = mPath;
-    RTags::encodePath(srcPath);
-    const Server::Options &options = Server::instance()->options();
-    const Path p = options.dataDir + srcPath;
-    DataFile file(p);
-    if (!file.open(DataFile::Write)) {
-        error("Save error %s: %s", p.constData(), file.error().constData());
-        return false;
-    }
-    file << mUsr << mVisitedFiles;
-    if (!file.flush()) {
-        error("Save error %s: %s", p.constData(), file.error().constData());
-        return false;
-    }
+    String visited;
+    Serializer serialize(visited);
+    serialize << mVisitedFiles;
 
-    return true;
+    auto writeScope = mGeneral.createWriteScope();
+    mGeneral["visitedFiles"] = visited;
+
+    return writeScope->flush();
 }
 
 static inline void markActive(SourceMap::iterator start, uint32_t buildId, const SourceMap::iterator end)
@@ -676,6 +671,7 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         }
     }
 
+    auto writeScope = mSources.createWriteScope();
     Source &src = mSources[key];
     src = job->source;
     src.flags |= Source::Active;
@@ -737,7 +733,7 @@ List<Source> Project::sources(uint32_t fileId) const
     return ret;
 }
 
-void Project::addDependencies(const Hash<uint32_t, Set<uint32_t> > &deps, Set<uint32_t> &newFiles)
+void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles)
 {
     StopWatch timer;
 
@@ -853,7 +849,7 @@ int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
     return toIndex.size();
 }
 
-static inline int writeSymbolNames(const Map<String, Set<Location> > &symbolNames, SymbolNameMap &current)
+static inline int writeSymbolNames(const SymbolNameMapMemory&symbolNames, SymbolNameMap &current)
 {
     int ret = 0;
     auto it = symbolNames.begin();
@@ -883,7 +879,7 @@ static inline void joinCursors(SymbolMap &symbols, const Set<Location> &location
     }
 }
 
-static inline void writeUsr(const UsrMap &usr, UsrMap &current, SymbolMap &symbols)
+static inline void writeUsr(const Hash<String, Set<Location> > &usr, UsrMap &current, SymbolMap &symbols)
 {
     auto it = usr.begin();
     const auto end = usr.end();
@@ -897,7 +893,7 @@ static inline void writeUsr(const UsrMap &usr, UsrMap &current, SymbolMap &symbo
     }
 }
 
-static inline void resolvePendingReferences(SymbolMap& symbols, const UsrMap& usrs, const UsrMap& refs)
+static inline void resolvePendingReferences(SymbolMap &symbols, const UsrMap &usrs, const Hash<String, Set<Location> > &refs)
 {
     for (const auto &ref : refs) {
         assert(!ref.second.isEmpty());
@@ -914,10 +910,10 @@ static inline void resolvePendingReferences(SymbolMap& symbols, const UsrMap& us
             }
         }
         SymbolMap targets;
-        for (const String& refUsr : refUsrs) {
+        for (const String &refUsr : refUsrs) {
             const auto usr = usrs.find(refUsr);
             if (usr != usrs.end()) {
-                for (const Location& usrLoc : usr->second) {
+                for (const Location &usrLoc : usr->second) {
                     auto symbol = symbols.value(usrLoc);
                     assert(symbol);
                     if (RTags::isCursor(symbol->kind))
@@ -938,7 +934,7 @@ static inline void resolvePendingReferences(SymbolMap& symbols, const UsrMap& us
     }
 }
 
-static inline int writeSymbols(const Map<Location, std::shared_ptr<CursorInfo> > &symbols, SymbolMap &current)
+static inline int writeSymbols(const SymbolMapMemory &symbols, SymbolMap &current)
 {
     int ret = 0;
     const bool wasEmpty = current.isEmpty();
@@ -1003,7 +999,7 @@ bool Project::isSuspended(uint32_t file) const
     return mSuspendedFiles.contains(file);
 }
 
-void Project::addFixIts(const Hash<uint32_t, Set<uint32_t> > &visited, const Hash<uint32_t, Set<uint32_t> > &fixIts)
+void Project::addFixIts(const DependencyMapMemory &visited, const FixItMapMemory &fixIts)
 {
     for (auto it = visited.begin(); it != visited.end(); ++it) {
         const auto fit = fixIts.find(it->first);
@@ -1209,6 +1205,11 @@ String Project::sync()
         return String();
     }
 
+    auto symbolNameWriteScope = mSymbolNames.createWriteScope();
+    auto symbolsWriteScope = mSymbols.createWriteScope();
+    auto usrScope = mUsr.createWriteScope();
+    auto dependenciesScope = mDependencies.createWriteScope();
+    auto fixitScope = mFixIts.createWriteScope();
     if (!mDirtyFiles.isEmpty()) {
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
         RTags::dirtySymbolNames(mSymbolNames, mDirtyFiles);
@@ -1218,11 +1219,10 @@ String Project::sync()
     const int dirtyTime = sw.restart();
 
     Set<uint32_t> newFiles;
-    List<UsrMap*> pendingReferences;
+    List<Hash<String, Set<Location> > *> pendingReferences;
     int symbols = 0;
     int symbolNames = 0;
     {
-        auto writescope = mSymbolNames.createWriteScope();
         for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
             const std::shared_ptr<IndexData> &data = it->second;
             addDependencies(data->dependencies, newFiles);
@@ -1235,7 +1235,7 @@ String Project::sync()
         }
     }
 
-    for (const UsrMap *map : pendingReferences)
+    for (const Hash<String, Set<Location> > *map : pendingReferences)
         resolvePendingReferences(mSymbols, mUsr, *map);
 
     for (auto it = newFiles.constBegin(); it != newFiles.constEnd(); ++it) {
