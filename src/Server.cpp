@@ -1313,7 +1313,7 @@ void Server::sources(const std::shared_ptr<QueryMessage> &query, Connection *con
         if (project->state() != Project::Loaded) {
             conn->write("Project loading");
         } else {
-            const SourceMap infos = project->sources();
+            const SourceMap &infos = project->sources();
             for (const auto &it : infos) {
                 if (match.isEmpty() || match.match(it.second.sourceFile())) {
                     if (flagsOnly) {

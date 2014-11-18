@@ -27,6 +27,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <getopt.h>
 #include <stdio.h>
 #include <typeinfo>
+#include <rct/DB.h>
 
 class Database;
 class Project;
@@ -55,13 +56,12 @@ void initMessages();
 }
 
 class CursorInfo;
-typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMap;
-typedef Hash<uint32_t, SymbolMap> ErrorSymbolMap;
+typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
 typedef Hash<String, Set<Location> > UsrMap;
 typedef Map<Location, Set<Location> > ReferenceMap;
-typedef Map<String, Set<Location> > SymbolNameMap;
+typedef DB<String, Set<Location> > SymbolNameMap;
 typedef Hash<uint32_t, Set<uint32_t> > DependencyMap;
-typedef Map<uint64_t, Source> SourceMap;
+typedef DB<uint64_t, Source> SourceMap;
 typedef Map<Path, Set<String> > FilesMap;
 typedef Hash<uint32_t, Set<FixIt> > FixItMap;
 typedef Hash<uint32_t, List<String> > DiagnosticsMap;

@@ -27,7 +27,7 @@ FollowLocationJob::FollowLocationJob(const Location &loc, const std::shared_ptr<
 int FollowLocationJob::execute()
 {
     const SymbolMap &map = project()->symbols();
-    SymbolMap::const_iterator it = RTags::findCursorInfo(map, location);
+    SymbolMap::const_iterator it = CursorInfo::findCursorInfo(map, location);
 
     if (it == map.end()) {
         return 1;

@@ -18,7 +18,6 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "Source.h"
 #include "RTags.h"
-#include "CursorInfo.h"
 #define __STDC_CONSTANT_MACROS
 #define __STDC_LIMIT_MACROS
 #include <clang/Basic/Version.h>
@@ -56,7 +55,6 @@ enum CursorToStringFlags {
     AllCursorToStringFlags = IncludeUSR|IncludeRange
 };
 String cursorToString(CXCursor cursor, unsigned = DefaultCursorToStringFlags);
-SymbolMap::const_iterator findCursorInfo(const SymbolMap &map, const Location &location);
 
 void parseTranslationUnit(const Path &sourceFile, const List<String> &args,
                           CXTranslationUnit &unit, CXIndex index,

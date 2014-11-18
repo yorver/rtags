@@ -47,6 +47,9 @@ endif ()
 
 set(RCT_STATIC 1)
 set(RCT_NO_INSTALL 1)
+set(RCT_DB_USE_MAP 1)
+add_definitions(-DRCT_DB_USE_MAP)
+
 add_subdirectory(rct)
 
 include(${CMAKE_CURRENT_LIST_DIR}/rct/compiler.cmake)
@@ -143,7 +146,7 @@ endif ()
 #   ${SYSTEM_LIBS}
 # )
 
-add_executable(rc rc.cpp RClient.cpp)
+add_executable(rc rc.cpp RClient.cpp foobar.cpp)
 add_dependencies(rc rct shared)
 target_link_libraries(rc shared rct ${SYSTEM_LIBS})
 

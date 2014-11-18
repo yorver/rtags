@@ -43,8 +43,7 @@ int ReferencesJob::execute()
 
             for (Set<Location>::const_iterator it = locations.begin(); it != locations.end(); ++it) {
                 Location pos;
-                SymbolMap::const_iterator found;
-                found = RTags::findCursorInfo(map, *it);
+                SymbolMap::const_iterator found = CursorInfo::findCursorInfo(map, *it);
                 if (found == map.end())
                     continue;
                 pos = found->first;
@@ -59,7 +58,7 @@ int ReferencesJob::execute()
                         continue;
                 }
                 if (queryFlags() & QueryMessage::AllReferences) {
-                    const SymbolMap all = cursorInfo->allReferences(pos, map);
+                    const Map<Location, std::shared_ptr<CursorInfo> > all = cursorInfo->allReferences(pos, map);
 
                     bool classRename = false;
                     switch (cursorInfo->kind) {

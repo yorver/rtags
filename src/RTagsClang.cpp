@@ -96,22 +96,6 @@ String cursorToString(CXCursor cursor, unsigned flags)
     return ret;
 }
 
-SymbolMap::const_iterator findCursorInfo(const SymbolMap &map, const Location &location)
-{
-    SymbolMap::const_iterator it = map.lower_bound(location);
-    if (it != map.end() && it->first == location) {
-        return it;
-    } else if (it != map.begin()) {
-        --it;
-        if (it->first.fileId() == location.fileId() && location.line() == it->first.line()) {
-            const int off = location.column() - it->first.column();
-            if (it->second->symbolLength > off)
-                return it;
-        }
-    }
-    return map.end();
-}
-
 void parseTranslationUnit(const Path &sourceFile, const List<String> &args,
                           CXTranslationUnit &unit, CXIndex index,
                           CXUnsavedFile *unsaved, int unsavedCount,

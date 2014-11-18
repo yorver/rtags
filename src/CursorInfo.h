@@ -22,9 +22,10 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <rct/Log.h>
 #include <rct/List.h>
 #include <clang-c/Index.h>
+#include <rct/DB.h>
 
 class CursorInfo;
-typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMap;
+typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
 class CursorInfo
 {
 public:
@@ -79,13 +80,37 @@ public:
         return isEmpty();
     }
 
-    std::shared_ptr<CursorInfo> bestTarget(const SymbolMap &map, Location *loc = 0) const;
-    SymbolMap targetInfos(const SymbolMap &map) const;
-    SymbolMap referenceInfos(const SymbolMap &map) const;
-    SymbolMap callers(const Location &loc, const SymbolMap &map) const;
-    SymbolMap allReferences(const Location &loc, const SymbolMap &map) const;
-    SymbolMap virtuals(const Location &loc, const SymbolMap &map) const;
-    SymbolMap declarationAndDefinition(const Location &loc, const SymbolMap &map) const;
+    template <typename SymbolContainer>
+    std::shared_ptr<CursorInfo> bestTarget(const SymbolContainer &map, Location *loc = 0) const;
+    template <typename SymbolContainer>
+    Map<Location, std::shared_ptr<CursorInfo> > targetInfos(const SymbolContainer &map) const;
+    template <typename SymbolContainer>
+    Map<Location, std::shared_ptr<CursorInfo> > referenceInfos(const SymbolContainer &map) const;
+    template <typename SymbolContainer>
+    Map<Location, std::shared_ptr<CursorInfo> > callers(const Location &loc, const SymbolContainer &map) const;
+    template <typename SymbolContainer>
+    Map<Location, std::shared_ptr<CursorInfo> > allReferences(const Location &loc, const SymbolContainer &map) const;
+    template <typename SymbolContainer>
+    Map<Location, std::shared_ptr<CursorInfo> > virtuals(const Location &loc, const SymbolContainer &map) const;
+    template <typename SymbolContainer>
+    Map<Location, std::shared_ptr<CursorInfo> > declarationAndDefinition(const Location &loc, const SymbolContainer &map) const;
+
+    template <typename SymbolContainer>
+    static typename SymbolContainer::const_iterator findCursorInfo(const SymbolContainer &map, const Location &location)
+    {
+        typename SymbolContainer::const_iterator it = map.lower_bound(location);
+        if (it != map.end() && it->first == location) {
+            return it;
+        } else if (it != map.begin()) {
+            --it;
+            if (it->first.fileId() == location.fileId() && location.line() == it->first.line()) {
+                const int off = location.column() - it->first.column();
+                if (it->second->symbolLength > off)
+                    return it;
+            }
+        }
+        return map.end();
+    }
 
     std::shared_ptr<CursorInfo> copy() const;
 
@@ -157,9 +182,9 @@ public:
     }
 
     template <typename T>
-    static inline void serialize(T &s, const SymbolMap &t);
+    static inline void serialize(T &s, const Map<Location, std::shared_ptr<CursorInfo> > &t);
     template <typename T>
-    static inline void deserialize(T &s, SymbolMap &t);
+    static inline void deserialize(T &s, Map<Location, std::shared_ptr<CursorInfo> > &t);
 
     enum Flag {
         IgnoreTargets = 0x1,
@@ -177,6 +202,15 @@ public:
     };
     Set<Location> targets, references;
     int startLine, startColumn, endLine, endColumn;
+private:
+    enum Mode {
+        ClassRefs,
+        VirtualRefs,
+        NormalRefs
+    };
+    template <typename SymbolContainer>
+    static void allImpl(const SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info, Map<Location, std::shared_ptr<CursorInfo> > &out, Mode mode, unsigned kind);
+    inline bool isReference(unsigned int kind);
 };
 
 template <> inline Serializer &operator<<(Serializer &s, const CursorInfo &t)
@@ -199,7 +233,7 @@ template <> inline Deserializer &operator>>(Deserializer &s, CursorInfo &t)
 }
 
 template <typename T>
-inline void CursorInfo::serialize(T &s, const SymbolMap &t)
+inline void CursorInfo::serialize(T &s, const Map<Location, std::shared_ptr<CursorInfo> > &t)
 {
     const uint32_t size = t.size();
     s << size;
@@ -208,7 +242,7 @@ inline void CursorInfo::serialize(T &s, const SymbolMap &t)
 }
 
 template <typename T>
-inline void CursorInfo::deserialize(T &s, SymbolMap &t)
+inline void CursorInfo::deserialize(T &s, Map<Location, std::shared_ptr<CursorInfo> > &t)
 {
     uint32_t size;
     s >> size;
@@ -226,6 +260,179 @@ inline Log operator<<(Log log, const CursorInfo &info)
 {
     log << info.toString();
     return log;
+}
+
+template <typename SymbolContainer>
+inline Map<Location, std::shared_ptr<CursorInfo> > CursorInfo::allReferences(const Location &loc, const SymbolContainer &map) const
+{
+    Map<Location, std::shared_ptr<CursorInfo> > ret;
+    Mode mode = NormalRefs;
+    switch (kind) {
+    case CXCursor_Constructor:
+    case CXCursor_Destructor:
+        mode = ClassRefs;
+        break;
+    case CXCursor_CXXMethod:
+        mode = VirtualRefs;
+        break;
+    default:
+        mode = isClass() ? ClassRefs : VirtualRefs;
+        break;
+    }
+
+    allImpl(map, loc, copy(), ret, mode, kind);
+    return ret;
+}
+
+template <typename SymbolContainer>
+inline Map<Location, std::shared_ptr<CursorInfo> > CursorInfo::virtuals(const Location &loc, const SymbolContainer &map) const
+{
+    Map<Location, std::shared_ptr<CursorInfo> > ret;
+    ret[loc] = copy();
+    const Map<Location, std::shared_ptr<CursorInfo> > s = (kind == CXCursor_CXXMethod ? allReferences(loc, map) : targetInfos(map));
+    for (auto it = s.begin(); it != s.end(); ++it) {
+        if (it->second->kind == kind)
+            ret[it->first] = it->second;
+    }
+    return ret;
+}
+
+template <typename SymbolContainer>
+inline Map<Location, std::shared_ptr<CursorInfo> > CursorInfo::declarationAndDefinition(const Location &loc, const SymbolContainer &map) const
+{
+    Map<Location, std::shared_ptr<CursorInfo> > cursors;
+    cursors[loc] = copy();
+
+    Location l;
+    const std::shared_ptr<CursorInfo> t = bestTarget(map, &l);
+
+    if (t->kind == kind)
+        cursors[l] = t;
+    return cursors;
+}
+
+template <typename SymbolContainer>
+inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(const SymbolContainer &map, Location *loc) const
+{
+    const Map<Location, std::shared_ptr<CursorInfo> > targets = targetInfos(map);
+
+    auto best = targets.end();
+    int bestRank = -1;
+    for (auto it = targets.begin(); it != targets.end(); ++it) {
+        const std::shared_ptr<CursorInfo> &ci = it->second;
+        const int r = targetRank(ci);
+        if (r > bestRank || (r == bestRank && ci->isDefinition())) {
+            bestRank = r;
+            best = it;
+        }
+    }
+    if (best != targets.end()) {
+        if (loc)
+            *loc = best->first;
+        return best->second;
+    }
+    return std::shared_ptr<CursorInfo>();
+}
+
+template <typename SymbolContainer>
+inline Map<Location, std::shared_ptr<CursorInfo> > CursorInfo::targetInfos(const SymbolContainer &map) const
+{
+    Map<Location, std::shared_ptr<CursorInfo> > ret;
+    for (auto it = targets.begin(); it != targets.end(); ++it) {
+        auto found = CursorInfo::findCursorInfo(map, *it);
+        if (found != map.end()) {
+            ret[*it] = found->second;
+        } else {
+            ret[*it] = std::make_shared<CursorInfo>();
+            // we need this one for inclusion directives which target a
+            // non-existing CursorInfo
+        }
+    }
+    return ret;
+}
+
+template <typename SymbolContainer>
+inline Map<Location, std::shared_ptr<CursorInfo> > CursorInfo::referenceInfos(const SymbolContainer &map) const
+{
+    Map<Location, std::shared_ptr<CursorInfo> > ret;
+    for (auto it = references.begin(); it != references.end(); ++it) {
+        auto found = CursorInfo::findCursorInfo(map, *it);
+        if (found != map.end()) {
+            ret[*it] = found->second;
+        }
+    }
+    return ret;
+}
+
+template <typename SymbolContainer>
+inline Map<Location, std::shared_ptr<CursorInfo> > CursorInfo::callers(const Location &loc, const SymbolContainer &map) const
+{
+    Map<Location, std::shared_ptr<CursorInfo> > ret;
+    const Map<Location, std::shared_ptr<CursorInfo> > cursors = virtuals(loc, map);
+    const bool isClazz = isClass();
+    for (auto c = cursors.begin(); c != cursors.end(); ++c) {
+        for (auto it = c->second->references.begin(); it != c->second->references.end(); ++it) {
+            const auto found = CursorInfo::findCursorInfo(map, *it);
+            if (found == map.end())
+                continue;
+            if (isClazz && found->second->kind == CXCursor_CallExpr)
+                continue;
+            if (CursorInfo::isReference(found->second->kind)) { // is this always right?
+                ret[*it] = found->second;
+            } else if (kind == CXCursor_Constructor && (found->second->kind == CXCursor_VarDecl || found->second->kind == CXCursor_FieldDecl)) {
+                ret[*it] = found->second;
+            }
+        }
+    }
+    return ret;
+}
+
+
+template <typename SymbolContainer>
+inline void CursorInfo::allImpl(const SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info,
+                                Map<Location, std::shared_ptr<CursorInfo> > &out, Mode mode, unsigned kind)
+{
+    if (out.contains(loc))
+        return;
+    out[loc] = info;
+    const Map<Location, std::shared_ptr<CursorInfo> > targets = info->targetInfos(map);
+    for (auto t = targets.begin(); t != targets.end(); ++t) {
+        bool ok = false;
+        switch (mode) {
+        case VirtualRefs:
+        case NormalRefs:
+            ok = (t->second->kind == kind);
+            break;
+        case ClassRefs:
+            ok = (t->second->isClass() || t->second->kind == CXCursor_Destructor || t->second->kind == CXCursor_Constructor);
+            break;
+        }
+        if (ok)
+            allImpl(map, t->first, t->second, out, mode, kind);
+    }
+    const Map<Location, std::shared_ptr<CursorInfo> > refs = info->referenceInfos(map);
+    for (auto r = refs.begin(); r != refs.end(); ++r) {
+        switch (mode) {
+        case NormalRefs:
+            out[r->first] = r->second;
+            break;
+        case VirtualRefs:
+            if (r->second->kind == kind) {
+                allImpl(map, r->first, r->second, out, mode, kind);
+            } else {
+                out[r->first] = r->second;
+            }
+            break;
+        case ClassRefs:
+            if (info->isClass()) // for class/struct we want the references inserted directly regardless and also recursed
+                out[r->first] = r->second;
+            if (r->second->isClass()
+                || r->second->kind == CXCursor_Destructor
+                || r->second->kind == CXCursor_Constructor) { // if is a constructor/destructor/class reference we want to recurse it
+                allImpl(map, r->first, r->second, out, mode, kind);
+            }
+        }
+    }
 }
 
 #endif

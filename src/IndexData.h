@@ -57,8 +57,8 @@ public:
     }
 
     uint64_t parseTime, key;
-    SymbolMap symbols;
-    SymbolNameMap symbolNames;
+    Map<Location, std::shared_ptr<CursorInfo> > symbols;
+    Map<String, Set<Location> > symbolNames;
     DependencyMap dependencies;
     UsrMap usrMap, pendingReferenceMap;
     String message; // used as output for dump when flags & Dump

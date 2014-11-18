@@ -80,13 +80,25 @@ public:
         DataFile file(p);
         if (!file.open(DataFile::Read)) {
             if (!file.error().isEmpty())
-                error("Restore error %s: %s", mPath.constData(), file.error().constData());
+                error("Restore error %s: %s", p.constData(), file.error().constData());
             Path::rm(p);
             return false;
         }
 
+        String err;
         CursorInfo::deserialize(file, mSymbols);
-        file >> mSymbolNames >> mUsr >> mDependencies >> mSources >> mVisitedFiles;
+        if (!mSymbolNames.load(p + ".symbolnames", RTags::DatabaseVersion, 0, &err)) {
+            if (!err.isEmpty())
+                error("Restore error %s/.symbolnames: %s", p.constData(), err.constData());
+            return false;
+        }
+        if (!mSources.load(p + ".sources", RTags::DatabaseVersion, 0, &err)) {
+            if (!err.isEmpty())
+                error("Restore error %s/.sources: %s", p.constData(), err.constData());
+            return false;
+        }
+
+        file >> mUsr >> mDependencies >> mVisitedFiles;
         for (const auto &source : mSources) {
             mDependencies[source.second.fileId].insert(source.second.fileId);
             // if we save before finishing a sync we may have saved mSources
@@ -432,10 +444,10 @@ void Project::unload()
     fileManager.reset();
 
     mSymbols.clear();
-    mSymbolNames.clear();
+    mSymbolNames.unload();
     mUsr.clear();
     mFiles.clear();
-    mSources.clear();
+    mSources.unload();
     mVisitedFiles.clear();
     mDependencies.clear();
     mState = Unloaded;
@@ -552,8 +564,7 @@ bool Project::save()
         return false;
     }
     CursorInfo::serialize(file, mSymbols);
-    file << mSymbolNames << mUsr
-         << mDependencies << mSources << mVisitedFiles;
+    file << mUsr << mDependencies << mVisitedFiles;
     if (!file.flush()) {
         error("Save error %s: %s", p.constData(), file.error().constData());
         return false;
@@ -830,7 +841,7 @@ int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
     return toIndex.size();
 }
 
-static inline int writeSymbolNames(const SymbolNameMap &symbolNames, SymbolNameMap &current)
+static inline int writeSymbolNames(const Map<String, Set<Location> > &symbolNames, SymbolNameMap &current)
 {
     int ret = 0;
     auto it = symbolNames.begin();
@@ -1199,15 +1210,18 @@ String Project::sync()
     List<UsrMap*> pendingReferences;
     int symbols = 0;
     int symbolNames = 0;
-    for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
-        const std::shared_ptr<IndexData> &data = it->second;
-        addDependencies(data->dependencies, newFiles);
-        addFixIts(data->dependencies, data->fixIts);
-        if (!data->pendingReferenceMap.isEmpty())
-            pendingReferences.append(&data->pendingReferenceMap);
-        symbols += writeSymbols(data->symbols, mSymbols);
-        writeUsr(data->usrMap, mUsr, mSymbols);
-        symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
+    {
+        auto writescope = mSymbolNames.createWriteScope();
+        for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
+            const std::shared_ptr<IndexData> &data = it->second;
+            addDependencies(data->dependencies, newFiles);
+            addFixIts(data->dependencies, data->fixIts);
+            if (!data->pendingReferenceMap.isEmpty())
+                pendingReferences.append(&data->pendingReferenceMap);
+            symbols += writeSymbols(data->symbols, mSymbols);
+            writeUsr(data->usrMap, mUsr, mSymbols);
+            symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
+        }
     }
 
     for (const UsrMap *map : pendingReferences)
