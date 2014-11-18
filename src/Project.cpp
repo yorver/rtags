@@ -86,7 +86,11 @@ public:
         }
 
         String err;
-        CursorInfo::deserialize(file, mSymbols);
+        if (!mSymbols.load(p + ".symbols", RTags::DatabaseVersion, 0, &err)) {
+            if (!err.isEmpty())
+                error("Restore error %s/.symbols: %s", p.constData(), err.constData());
+            return false;
+        }
         if (!mSymbolNames.load(p + ".symbolnames", RTags::DatabaseVersion, 0, &err)) {
             if (!err.isEmpty())
                 error("Restore error %s/.symbolnames: %s", p.constData(), err.constData());
@@ -98,7 +102,7 @@ public:
             return false;
         }
 
-        file >> mUsr >> mDependencies >> mVisitedFiles;
+        file >> mUsr >> mVisitedFiles;
         for (const auto &source : mSources) {
             mDependencies[source.second.fileId].insert(source.second.fileId);
             // if we save before finishing a sync we may have saved mSources
@@ -153,6 +157,9 @@ public:
 class SimpleDirty : public Dirty
 {
 public:
+    SimpleDirty()
+        : Dirty()
+    {}
     void init(const Set<uint32_t> &dirty, const DependencyMap &dependencies)
     {
         for (auto fileId : dirty) {
@@ -177,6 +184,9 @@ public:
 class ComplexDirty : public Dirty
 {
 public:
+    ComplexDirty()
+        : Dirty()
+    {}
     virtual Set<uint32_t> dirtied() const
     {
         return mDirty;
@@ -201,6 +211,9 @@ public:
 class SuspendedDirty : public ComplexDirty
 {
 public:
+    SuspendedDirty()
+        : ComplexDirty()
+    {}
     bool isDirty(const Source &)
     {
         return false;
@@ -211,9 +224,9 @@ class IfModifiedDirty : public ComplexDirty
 {
 public:
     IfModifiedDirty(const DependencyMap &dependencies, const Match &match = Match())
-        : mDependencies(dependencies), mMatch(match)
+        : ComplexDirty(), mMatch(match)
     {
-        for (auto it : mDependencies) {
+        for (auto it : dependencies) {
             const uint32_t dependee = it.first;
             const Set<uint32_t> &dependents = it.second;
             for (auto dependent : dependents) {
@@ -247,7 +260,7 @@ public:
         return ret;
     }
 
-    DependencyMap mDependencies, mReversedDependencies;
+    Hash<uint32_t, Set<uint32_t> > mReversedDependencies;
     Match mMatch;
 };
 
@@ -443,13 +456,13 @@ void Project::unload()
     mActiveJobs.clear();
     fileManager.reset();
 
-    mSymbols.clear();
+    mSymbols.unload();
     mSymbolNames.unload();
-    mUsr.clear();
+    mUsr.unload();
     mFiles.clear();
     mSources.unload();
     mVisitedFiles.clear();
-    mDependencies.clear();
+    mDependencies.unload();
     mState = Unloaded;
     mSyncTimer.stop();
     mDirtyTimer.stop();
@@ -563,8 +576,7 @@ bool Project::save()
         error("Save error %s: %s", p.constData(), file.error().constData());
         return false;
     }
-    CursorInfo::serialize(file, mSymbols);
-    file << mUsr << mDependencies << mVisitedFiles;
+    file << mUsr << mVisitedFiles;
     if (!file.flush()) {
         error("Save error %s: %s", p.constData(), file.error().constData());
         return false;
@@ -725,7 +737,7 @@ List<Source> Project::sources(uint32_t fileId) const
     return ret;
 }
 
-void Project::addDependencies(const DependencyMap &deps, Set<uint32_t> &newFiles)
+void Project::addDependencies(const Hash<uint32_t, Set<uint32_t> > &deps, Set<uint32_t> &newFiles)
 {
     StopWatch timer;
 
@@ -860,7 +872,7 @@ static inline void joinCursors(SymbolMap &symbols, const Set<Location> &location
 {
     for (auto it = locations.begin(); it != locations.end(); ++it) {
         const auto c = symbols.find(*it);
-        if (c != symbols.constEnd()) {
+        if (c != symbols.end()) {
             std::shared_ptr<CursorInfo> &cursorInfo = c->second;
             for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
                 if (innerIt != it)
@@ -926,28 +938,27 @@ static inline void resolvePendingReferences(SymbolMap& symbols, const UsrMap& us
     }
 }
 
-static inline int writeSymbols(SymbolMap &symbols, SymbolMap &current)
+static inline int writeSymbols(const Map<Location, std::shared_ptr<CursorInfo> > &symbols, SymbolMap &current)
 {
     int ret = 0;
-    if (!symbols.isEmpty()) {
-        if (current.isEmpty()) {
-            current = symbols;
-            ret = symbols.size();
+    const bool wasEmpty = current.isEmpty();
+    auto it = symbols.begin();
+    const auto end = symbols.end();
+    while (it != end) {
+        if (wasEmpty) {
+            current[it->first] = it->second;
+            ++ret;
         } else {
-            auto it = symbols.begin();
-            const auto end = symbols.end();
-            while (it != end) {
-                auto cur = current.find(it->first);
-                if (cur == current.end()) {
-                    current[it->first] = it->second;
+            auto cur = current.find(it->first);
+            if (cur == current.end()) {
+                current[it->first] = it->second;
+                ++ret;
+            } else {
+                if (cur->second->unite(it->second))
                     ++ret;
-                } else {
-                    if (cur->second->unite(it->second))
-                        ++ret;
-                }
-                ++it;
             }
         }
+        ++it;
     }
     return ret;
 }
@@ -992,12 +1003,12 @@ bool Project::isSuspended(uint32_t file) const
     return mSuspendedFiles.contains(file);
 }
 
-void Project::addFixIts(const DependencyMap &visited, const FixItMap &fixIts) // lock always held
+void Project::addFixIts(const Hash<uint32_t, Set<uint32_t> > &visited, const Hash<uint32_t, Set<uint32_t> > &fixIts)
 {
     for (auto it = visited.begin(); it != visited.end(); ++it) {
         const auto fit = fixIts.find(it->first);
         if (fit == fixIts.end()) {
-            mFixIts.erase(it->first);
+            mFixIts.remove(it->first);
         } else {
             mFixIts[it->first] = fit->second;
         }

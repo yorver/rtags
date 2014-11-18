@@ -57,14 +57,12 @@ void initMessages();
 
 class CursorInfo;
 typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
-typedef Hash<String, Set<Location> > UsrMap;
-typedef Map<Location, Set<Location> > ReferenceMap;
+typedef DB<String, Set<Location> > UsrMap;
 typedef DB<String, Set<Location> > SymbolNameMap;
-typedef Hash<uint32_t, Set<uint32_t> > DependencyMap;
+typedef DB<uint32_t, Set<uint32_t> > DependencyMap;
 typedef DB<uint64_t, Source> SourceMap;
 typedef Map<Path, Set<String> > FilesMap;
-typedef Hash<uint32_t, Set<FixIt> > FixItMap;
-typedef Hash<uint32_t, List<String> > DiagnosticsMap;
+typedef DB<uint32_t, Set<FixIt> > FixItMap;
 typedef Hash<Path, String> UnsavedFiles;
 
 namespace RTags {

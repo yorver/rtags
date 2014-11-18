@@ -71,7 +71,7 @@ int ReferencesJob::execute()
                         break;
                     }
 
-                    for (SymbolMap::const_iterator a = all.begin(); a != all.end(); ++a) {
+                    for (auto a = all.begin(); a != all.end(); ++a) {
                         if (!classRename) {
                             references[a->first] = std::make_pair(a->second->isDefinition(), a->second->kind);
                         } else {
@@ -81,8 +81,8 @@ int ReferencesJob::execute()
                                 FoundReferences = 0x4
                             };
                             unsigned state = 0;
-                            const SymbolMap targets = a->second->targetInfos(map);
-                            for (SymbolMap::const_iterator t = targets.begin(); t != targets.end(); ++t) {
+                            const auto targets = a->second->targetInfos(map);
+                            for (auto t = targets.begin(); t != targets.end(); ++t) {
                                 if (t->second->kind != a->second->kind)
                                     state |= FoundReferences;
                                 if (t->second->kind == CXCursor_Constructor) {
@@ -97,9 +97,9 @@ int ReferencesJob::execute()
                         }
                     }
                 } else if (queryFlags() & QueryMessage::FindVirtuals) {
-                    const SymbolMap virtuals = cursorInfo->virtuals(pos, map);
+                    const auto virtuals = cursorInfo->virtuals(pos, map);
                     const bool declarationOnly = queryFlags() & QueryMessage::DeclarationOnly;
-                    for (SymbolMap::const_iterator v = virtuals.begin(); v != virtuals.end(); ++v) {
+                    for (auto v = virtuals.begin(); v != virtuals.end(); ++v) {
                         const bool def = v->second->isDefinition();
                         if (declarationOnly && def) {
                             const std::shared_ptr<CursorInfo> decl = v->second->bestTarget(map);
@@ -113,8 +113,8 @@ int ReferencesJob::execute()
                     // doesn't work that well do the clever offset thing
                     // underneath
                 } else {
-                    const SymbolMap callers = cursorInfo->callers(pos, map);
-                    for (SymbolMap::const_iterator c = callers.begin(); c != callers.end(); ++c) {
+                    const auto callers = cursorInfo->callers(pos, map);
+                    for (auto c = callers.begin(); c != callers.end(); ++c) {
                         references[c->first] = std::make_pair(false, CXCursor_FirstInvalid);
                         // For find callers we don't want to prefer definitions or do ranks on cursors
                     }

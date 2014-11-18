@@ -59,10 +59,10 @@ public:
     uint64_t parseTime, key;
     Map<Location, std::shared_ptr<CursorInfo> > symbols;
     Map<String, Set<Location> > symbolNames;
-    DependencyMap dependencies;
-    UsrMap usrMap, pendingReferenceMap;
+    Hash<uint32_t, Set<uint32_t> > dependencies;
+    Hash<String, Set<Location> > usrMap, pendingReferenceMap;
     String message; // used as output for dump when flags & Dump
-    FixItMap fixIts;
+    Hash<uint32_t, Set<FixIt> > fixIts;
     String xmlDiagnostics;
     Hash<uint32_t, bool> visited;
     uint64_t id;

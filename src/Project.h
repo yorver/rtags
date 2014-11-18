@@ -104,8 +104,8 @@ public:
     int remove(const Match &match);
     void onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::shared_ptr<IndexData> &indexData);
     const SourceMap &sources() const { return mSources; }
-    DependencyMap dependencies() const { return mDependencies; }
-    Set<Path> watchedPaths() const { return mWatchedPaths; }
+    const DependencyMap &dependencies() const { return mDependencies; }
+    const Set<Path> &watchedPaths() const { return mWatchedPaths; }
     bool isIndexing() const { return !mActiveJobs.isEmpty(); }
     void onFileModifiedOrRemoved(const Path &);
     Hash<uint32_t, Path> visitedFiles() const
@@ -128,8 +128,8 @@ private:
     void updateContents(RestoreThread *thread);
     void watch(const Path &file);
     void reloadFileManager();
-    void addDependencies(const DependencyMap &hash, Set<uint32_t> &newFiles);
-    void addFixIts(const DependencyMap &dependencies, const FixItMap &fixIts);
+    void addDependencies(const Hash<uint32_t, Set<uint32_t> > &deps, Set<uint32_t> &newFiles);
+    void addFixIts(const Hash<uint32_t, Set<uint32_t> > &visited, const Hash<uint32_t, Set<uint32_t> > &fixIts);
     int startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles = UnsavedFiles());
     bool save();
     void onSynced();

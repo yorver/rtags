@@ -210,7 +210,7 @@ private:
     };
     template <typename SymbolContainer>
     static void allImpl(const SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info, Map<Location, std::shared_ptr<CursorInfo> > &out, Mode mode, unsigned kind);
-    inline bool isReference(unsigned int kind);
+    static bool isReference(unsigned int kind);
 };
 
 template <> inline Serializer &operator<<(Serializer &s, const CursorInfo &t)
