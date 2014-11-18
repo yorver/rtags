@@ -96,9 +96,22 @@ public:
             return false;
         }
 
-        auto writeScope = mDependencies.createWriteScope(); // we don't always need this one
+        std::shared_ptr<DependencyMap::WriteScope> writeScope;
         for (const auto &source : mSources) {
-            mDependencies[source.second.fileId].insert(source.second.fileId);
+            auto it = mDependencies.find(source.second.fileId);
+            if (it == mDependencies.end()) {
+                if (!writeScope)
+                    writeScope = mDependencies.createWriteScope();
+                Set<uint32_t> deps;
+                deps.insert(source.second.fileId);
+                mDependencies.set(source.second.fileId, deps);
+            } else if (!it->second.contains(source.second.fileId)) {
+                if (!writeScope)
+                    writeScope = mDependencies.createWriteScope();
+                auto deps = it->second;
+                deps.insert(source.second.fileId);
+                it.setValue(deps);
+            }
             // if we save before finishing a sync we may have saved mSources
             // without ever having parsed them, if so they won't depend on
             // anything. Make sure they depend on themselves
@@ -576,7 +589,7 @@ bool Project::save()
     serialize << mVisitedFiles;
 
     auto writeScope = mGeneral.createWriteScope();
-    mGeneral["visitedFiles"] = visited;
+    mGeneral.set("visitedFiles", visited);
 
     return writeScope->flush();
 }
@@ -679,9 +692,9 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         }
     }
 
-    Source &src = mSources[key];
-    src = job->source;
-    src.flags |= Source::Active;
+    Source source = job->source;
+    source.flags |= Source::Active;
+    mSources.set(key, source);
 
     if (!writeScope->flush(&err)) {
         error() << "Failed to write to sources" << mSources.size() << err;

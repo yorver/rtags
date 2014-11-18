@@ -1459,12 +1459,12 @@ bool Server::saveFileIds()
         serializer << pathsToIds;
     }
     auto writeScope = mDB.createWriteScope();
-    mDB["fileIds"] = data; // can this fail?
-    mLastFileId = lastId;
+    mDB.set("fileIds", data); // can this fail?
     if (!writeScope->flush()) {
         error() << "Failed to save file ids" << mDB.path();
         return false;
     }
+    mLastFileId = lastId;
     return true;
 }
 
