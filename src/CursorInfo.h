@@ -82,22 +82,22 @@ public:
     }
 
     template <typename SymbolContainer>
-    std::shared_ptr<CursorInfo> bestTarget(const SymbolContainer &map, Location *loc = 0) const;
+    std::shared_ptr<CursorInfo> bestTarget(SymbolContainer &map, Location *loc = 0) const;
     template <typename SymbolContainer>
-    SymbolMapMemory targetInfos(const SymbolContainer &map) const;
+    SymbolMapMemory targetInfos(SymbolContainer &map) const;
     template <typename SymbolContainer>
-    SymbolMapMemory referenceInfos(const SymbolContainer &map) const;
+    SymbolMapMemory referenceInfos(SymbolContainer &map) const;
     template <typename SymbolContainer>
-    SymbolMapMemory callers(const Location &loc, const SymbolContainer &map) const;
+    SymbolMapMemory callers(const Location &loc, SymbolContainer &map) const;
     template <typename SymbolContainer>
-    SymbolMapMemory allReferences(const Location &loc, const SymbolContainer &map) const;
+    SymbolMapMemory allReferences(const Location &loc, SymbolContainer &map) const;
     template <typename SymbolContainer>
-    SymbolMapMemory virtuals(const Location &loc, const SymbolContainer &map) const;
+    SymbolMapMemory virtuals(const Location &loc, SymbolContainer &map) const;
     template <typename SymbolContainer>
-    SymbolMapMemory declarationAndDefinition(const Location &loc, const SymbolContainer &map) const;
+    SymbolMapMemory declarationAndDefinition(const Location &loc, SymbolContainer &map) const;
 
     template <typename SymbolContainer>
-    static typename SymbolContainer::const_iterator findCursorInfo(const SymbolContainer &map, const Location &location)
+    static typename SymbolContainer::iterator findCursorInfo(SymbolContainer &map, const Location &location)
     {
         typename SymbolContainer::const_iterator it = map.lower_bound(location);
         if (it != map.end() && it->first == location) {
@@ -210,7 +210,7 @@ private:
         NormalRefs
     };
     template <typename SymbolContainer>
-    static void allImpl(const SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info, SymbolMapMemory &out, Mode mode, unsigned kind);
+    static void allImpl(SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info, SymbolMapMemory &out, Mode mode, unsigned kind);
     static bool isReference(unsigned int kind);
 };
 
@@ -264,7 +264,7 @@ inline Log operator<<(Log log, const CursorInfo &info)
 }
 
 template <typename SymbolContainer>
-inline SymbolMapMemory CursorInfo::allReferences(const Location &loc, const SymbolContainer &map) const
+inline SymbolMapMemory CursorInfo::allReferences(const Location &loc, SymbolContainer &map) const
 {
     SymbolMapMemory ret;
     Mode mode = NormalRefs;
@@ -286,7 +286,7 @@ inline SymbolMapMemory CursorInfo::allReferences(const Location &loc, const Symb
 }
 
 template <typename SymbolContainer>
-inline SymbolMapMemory CursorInfo::virtuals(const Location &loc, const SymbolContainer &map) const
+inline SymbolMapMemory CursorInfo::virtuals(const Location &loc, SymbolContainer &map) const
 {
     SymbolMapMemory ret;
     ret[loc] = copy();
@@ -299,7 +299,7 @@ inline SymbolMapMemory CursorInfo::virtuals(const Location &loc, const SymbolCon
 }
 
 template <typename SymbolContainer>
-inline SymbolMapMemory CursorInfo::declarationAndDefinition(const Location &loc, const SymbolContainer &map) const
+inline SymbolMapMemory CursorInfo::declarationAndDefinition(const Location &loc, SymbolContainer &map) const
 {
     SymbolMapMemory cursors;
     cursors[loc] = copy();
@@ -313,7 +313,7 @@ inline SymbolMapMemory CursorInfo::declarationAndDefinition(const Location &loc,
 }
 
 template <typename SymbolContainer>
-inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(const SymbolContainer &map, Location *loc) const
+inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(SymbolContainer &map, Location *loc) const
 {
     const SymbolMapMemory targets = targetInfos(map);
 
@@ -336,7 +336,7 @@ inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(const SymbolContainer 
 }
 
 template <typename SymbolContainer>
-inline SymbolMapMemory CursorInfo::targetInfos(const SymbolContainer &map) const
+inline SymbolMapMemory CursorInfo::targetInfos(SymbolContainer &map) const
 {
     SymbolMapMemory ret;
     for (auto it = targets.begin(); it != targets.end(); ++it) {
@@ -353,7 +353,7 @@ inline SymbolMapMemory CursorInfo::targetInfos(const SymbolContainer &map) const
 }
 
 template <typename SymbolContainer>
-inline SymbolMapMemory CursorInfo::referenceInfos(const SymbolContainer &map) const
+inline SymbolMapMemory CursorInfo::referenceInfos(SymbolContainer &map) const
 {
     SymbolMapMemory ret;
     for (auto it = references.begin(); it != references.end(); ++it) {
@@ -366,7 +366,7 @@ inline SymbolMapMemory CursorInfo::referenceInfos(const SymbolContainer &map) co
 }
 
 template <typename SymbolContainer>
-inline SymbolMapMemory CursorInfo::callers(const Location &loc, const SymbolContainer &map) const
+inline SymbolMapMemory CursorInfo::callers(const Location &loc, SymbolContainer &map) const
 {
     SymbolMapMemory ret;
     const SymbolMapMemory cursors = virtuals(loc, map);
@@ -390,7 +390,7 @@ inline SymbolMapMemory CursorInfo::callers(const Location &loc, const SymbolCont
 
 
 template <typename SymbolContainer>
-inline void CursorInfo::allImpl(const SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info,
+inline void CursorInfo::allImpl(SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info,
                                 SymbolMapMemory &out, Mode mode, unsigned kind)
 {
     if (out.contains(loc))

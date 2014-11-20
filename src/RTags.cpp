@@ -38,9 +38,9 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 template <typename T>
 static void dirtySymbolNamesOrUsr(T &map, const Set<uint32_t> &dirty)
 {
-    typename T::iterator it = map.begin();
-    while (it != map.end()) {
-        Set<Location> locations = it->second;
+    auto it = map.createIterator();
+    while (it->isValid()) {
+        Set<Location> locations = it->value();
         bool locationsDirty = false;
         Set<Location>::iterator i = locations.begin();
         while (i != locations.end()) {
@@ -52,12 +52,12 @@ static void dirtySymbolNamesOrUsr(T &map, const Set<uint32_t> &dirty)
             }
         }
         if (locations.isEmpty()) {
-            map.erase(it++);
+            it->erase();
         } else {
             if (locationsDirty) {
-                it.setValue(locations);
+                it->setValue(locations);
             }
-            ++it;
+            it->next();
         }
     }
 }
@@ -71,13 +71,15 @@ void dirtySymbolNames(SymbolNameMap &map, const Set<uint32_t> &dirty)
 
 void dirtySymbols(SymbolMap &map, const Set<uint32_t> &dirty)
 {
-    SymbolMap::iterator it = map.begin();
-    while (it != map.end()) {
-        if (dirty.contains(it->first.fileId())) {
-            map.erase(it++);
+    auto it = map.createIterator();
+    while (it->isValid()) {
+        if (dirty.contains(it->key().fileId())) {
+            it->erase();
         } else {
-            it->second->dirty(dirty);
-            ++it;
+            if (it->value()->dirty(dirty)) {
+                it->setValue(it->value());
+            }
+            it->next();
         }
     }
 }

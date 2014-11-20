@@ -78,12 +78,12 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "dependencies")) {
         matched = true;
-        const DependencyMap &map = proj->dependencies();
+        DependencyMap &map = proj->dependencies();
         if (!write(delimiter) || !write("dependencies") || !write(delimiter))
             return 1;
         DependencyMapMemory depsReversed;
 
-        for (DependencyMap::const_iterator it = map.begin(); it != map.end(); ++it) {
+        for (auto it = map.createIterator(); it->isValid(); it->next()) {
             if (!write<256>("  %s (%d) is depended on by", Location::path(it->first).constData(), it->first))
                 return 1;
             const Set<uint32_t> &deps = it->second;

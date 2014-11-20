@@ -67,7 +67,18 @@ public:
     bool match(const Match &match, bool *indexed = 0) const;
 
     const SymbolMap &symbols() const { return mSymbols; }
+    SymbolMap &symbols()  { return mSymbols; }
+
     const SymbolNameMap &symbolNames() const { return mSymbolNames; }
+    SymbolNameMap &symbolNames()  { return mSymbolNames; }
+
+    const FilesMap &files() const { return mFiles; }
+    FilesMap &files() { return mFiles; }
+
+    const UsrMap &usrs() const { return mUsr; }
+    UsrMap &usrs() { return mUsr; }
+
+#warning make these shared_ptrs
 
     Set<Location> locations(const String &symbolName, uint32_t fileId = 0) const;
     SymbolMapMemory symbols(uint32_t fileId) const;
@@ -77,12 +88,6 @@ public:
         Sort_Reverse = 0x2
     };
     List<RTags::SortedCursor> sort(const Set<Location> &locations, unsigned int flags = Sort_None) const;
-
-    const FilesMap &files() const { return mFiles; }
-    FilesMap &files() { return mFiles; }
-
-    const UsrMap &usrs() const { return mUsr; }
-    UsrMap &usrs() { return mUsr; }
 
     const Set<uint32_t> &suspendedFiles() const;
     bool toggleSuspendFile(uint32_t file);

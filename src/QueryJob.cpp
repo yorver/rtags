@@ -140,28 +140,28 @@ bool QueryJob::write(const Location &location, unsigned /* flags */)
     const bool cursorKind = queryFlags() & QueryMessage::CursorKind;
     const bool displayName = queryFlags() & QueryMessage::DisplayName;
     if (containingFunction || cursorKind || displayName) {
-        const SymbolMap &symbols = project()->symbols();
-        SymbolMap::const_iterator it = symbols.find(location);
-        if (it == symbols.end()) {
+        SymbolMap &symbols = project()->symbols();
+        auto it = symbols.find(location);
+        if (!it->isValid()) {
             error() << "Somehow can't find" << location << "in symbols";
         } else {
             if (displayName)
-                out += '\t' + it->second->displayName();
+                out += '\t' + it->value()->displayName();
             if (cursorKind)
-                out += '\t' + it->second->kindSpelling();
+                out += '\t' + it->value()->kindSpelling();
             if (containingFunction) {
                 const uint32_t fileId = location.fileId();
                 const unsigned int line = location.line();
                 const unsigned int column = location.column();
                 while (true) {
-                    --it;
+                    it->prev();
                     if (it->first.fileId() != fileId)
                         break;
-                    if (it->second->isDefinition()
-                        && RTags::isContainer(it->second->kind)
-                        && comparePosition(line, column, it->second->startLine, it->second->startColumn) >= 0
-                        && comparePosition(line, column, it->second->endLine, it->second->endColumn) <= 0) {
-                        out += "\tfunction: " + it->second->symbolName;
+                    if (it->value()->isDefinition()
+                        && RTags::isContainer(it->value()->kind)
+                        && comparePosition(line, column, it->value()->startLine, it->value()->startColumn) >= 0
+                        && comparePosition(line, column, it->value()->endLine, it->value()->endColumn) <= 0) {
+                        out += "\tfunction: " + it->value()->symbolName;
                         break;
                     } else if (it == symbols.begin()) {
                         break;

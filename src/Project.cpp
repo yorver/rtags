@@ -95,7 +95,7 @@ public:
             return false; // there's really no way to recover from this
 
         std::shared_ptr<DependencyMap::WriteScope> writeScope;
-        for (const auto &source : mSources) {
+        for (auto source = mSources.createIterator(); source->isValid(); source->next()) {
             auto it = mDependencies.find(source.second.fileId);
             if (it == mDependencies.end()) {
                 if (!writeScope)
