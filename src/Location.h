@@ -200,6 +200,11 @@ public:
         LOCK();
         return sPathsToIds;
     }
+    static int count()
+    {
+        LOCK();
+        return sPathsToIds.size();
+    }
     static void init(const Hash<Path, uint32_t> &pathsToIds)
     {
         LOCK();

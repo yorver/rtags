@@ -219,27 +219,19 @@ bool Server::init(const Options &options)
 
     mUnixServer->newConnection().connect(std::bind(&Server::onNewConnection, this, std::placeholders::_1));
     String err;
-    bool ok = true;
-    if (!mDB.load(mOptions.dataDir + "db", RTags::DatabaseVersion, 0, &err)) {
-        ok = false;
-        error("Can't restore file ids: %s", err.constData());
-        if (!mDB.load(mOptions.dataDir + "db", RTags::DatabaseVersion, DB<String, String>::Overwrite, &err)) {
-            error("Can't create file ids db: %s", err.constData());
-            return false;
-        }
+    if (!mDB.open(mOptions.dataDir + "db", RTags::DatabaseVersion)) {
+        return false;
     } else {
         const String data = mDB.value("fileIds");
-        if (data.isEmpty()) {
-            ok = false;
-            error("Can't restore file ids (empty)");
-        } else {
+        if (!data.isEmpty()) {
             Deserializer deserializer(data);
             Hash<Path, uint32_t> pathsToIds;
             deserializer >> pathsToIds;
             Location::init(pathsToIds);
         }
     }
-    if (!ok) {
+    if (!Location::count()) {
+        // we didn't load any file ids so all data is void
         clearProjects();
     } else {
         reloadProjects();
@@ -284,13 +276,13 @@ int Server::reloadProjects()
         p.chop(1);
         RTags::decodePath(p);
         if (p.isDir()) {
-            DB<String, String> general;
+            SourceMap sources;
             String err;
-            if (general.load(path + "db", RTags::DatabaseVersion, 0, &err)) {
+            if (sources.open(path + "sources", RTags::DatabaseVersion) && sources.size()) {
                 addProject(p);
             } else {
                 error() << "Can't restore project:" << p << err << "Removing" << path;
-                // Rct::removeDirectory(path);
+                Rct::removeDirectory(path);
             }
         }
     }

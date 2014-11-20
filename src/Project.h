@@ -41,6 +41,7 @@ class Project : public std::enable_shared_from_this<Project>
 public:
     Project(const Path &path);
     ~Project();
+
     enum State {
         Unloaded,
         Inited,
@@ -61,7 +62,7 @@ public:
     std::shared_ptr<FileManager> fileManager;
 
     Path path() const { return mPath; }
-    String dbPath() const;
+    String dbPath() const { return mDBPath; }
 
     bool match(const Match &match, bool *indexed = 0) const;
 
@@ -137,6 +138,7 @@ private:
     void onDirtyTimeout(Timer *);
 
     const Path mPath;
+    Path mDBPath;
     State mState;
 
     SymbolMap mSymbols;

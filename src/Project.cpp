@@ -37,6 +37,7 @@ enum {
     DirtyTimeout = 100
 };
 
+
 class RestoreThread : public Thread
 {
 public:
@@ -44,6 +45,22 @@ public:
         : mPath(project->path()), mDBPath(project->dbPath()), mWeak(project)
     {
         setAutoDelete(true);
+    }
+
+    template <typename T>
+    static inline bool openDB(T &db, const Path &dbPath, const char *name)
+    {
+        return !db.path().isEmpty() || db.open(dbPath + name, RTags::DatabaseVersion);
+    }
+
+    template <typename T>
+    static inline bool openDBs(T *t)
+    {
+        return (openDB(t->mSymbols, t->mDBPath, "symbols")
+                && openDB(t->mSymbolNames, t->mDBPath, "symbolnames")
+                && openDB(t->mUsr, t->mDBPath, "usr")
+                && openDB(t->mSources, t->mDBPath, "sources")
+                && openDB(t->mGeneral, t->mDBPath, "db"));
     }
 
     virtual void run()
@@ -56,8 +73,9 @@ public:
 
         EventLoop::mainEventLoop()->callLater([this, thread, &timer, &mutex, &condition, &finished]() {
                 if (std::shared_ptr<Project> proj = mWeak.lock()) {
+                    const bool restored = thread && thread->mSources.size();
                     proj->updateContents(thread);
-                    if (thread)
+                    if (restored)
                         error() << "Restored project" << mPath << "in" << timer.elapsed() << "ms";
                 }
                 std::unique_lock<std::mutex> lock(mutex);
@@ -73,28 +91,8 @@ public:
 
     bool restore()
     {
-        String err;
-        if (!mSymbols.load(mDBPath + "symbols", RTags::DatabaseVersion, 0, &err)) {
-            if (!err.isEmpty())
-                error("Restore error %ssymbols: %s", mDBPath.constData(), err.constData());
-            return false;
-        }
-        if (!mSymbolNames.load(mDBPath + "symbolnames", RTags::DatabaseVersion, 0, &err)) {
-            if (!err.isEmpty())
-                error("Restore error %ssymbolnames: %s", mDBPath.constData(), err.constData());
-            return false;
-        }
-        if (!mSources.load(mDBPath + "sources", RTags::DatabaseVersion, 0, &err)) {
-            if (!err.isEmpty())
-                error("Restore error %ssources: %s", mDBPath.constData(), err.constData());
-            return false;
-        }
-
-        if (!mGeneral.load(mDBPath + "db", RTags::DatabaseVersion, 0, &err)) {
-            if (!err.isEmpty())
-                error("Restore error %sgeneral: %s", mDBPath.constData(), err.constData());
-            return false;
-        }
+        if (!openDBs(this))
+            return false; // there's really no way to recover from this
 
         std::shared_ptr<DependencyMap::WriteScope> writeScope;
         for (const auto &source : mSources) {
@@ -308,8 +306,12 @@ public:
 };
 
 Project::Project(const Path &path)
-    : mPath(path), mState(Unloaded), mJobCounter(0)
+    : mPath(path), mDBPath(path), mState(Unloaded), mJobCounter(0)
 {
+    Path p = mPath;
+    RTags::encodePath(p);
+    mDBPath = Server::instance()->options().dataDir + p + "/";
+
     const auto &options = Server::instance()->options();
 
     if (!(options.options & Server::NoFileSystemWatch)) {
@@ -473,13 +475,14 @@ void Project::unload()
     mActiveJobs.clear();
     fileManager.reset();
 
-    mSymbols.unload();
-    mSymbolNames.unload();
-    mUsr.unload();
+    mSymbols.close();
+    mSymbolNames.close();
+    mDependencies.close();
+    mUsr.close();
+    mSources.close();
+
     mFiles.clear();
-    mSources.unload();
     mVisitedFiles.clear();
-    mDependencies.unload();
     mState = Unloaded;
     mSyncTimer.stop();
     mDirtyTimer.stop();
@@ -637,9 +640,8 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         return;
     }
 
-    String err;
-    if (mSources.path().isEmpty() && !mSources.load(dbPath() + "sources", RTags::DatabaseVersion, SourceMap::Overwrite, &err)) {
-        error() << "Failed to open sources database" << err;
+    if (!RestoreThread::openDBs(this)) {
+        error() << "Failed to open databases";
         return;
     }
 
@@ -701,6 +703,7 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
     source.flags |= Source::Active;
     mSources.set(key, source);
 
+    String err;
     if (!writeScope->flush(&err)) {
         error() << "Failed to write to sources" << mSources.size() << err;
     }
@@ -944,7 +947,6 @@ static inline void joinCursors(SymbolMap &symbols, const Set<Location> &location
             }
             if (changed) {
                 c.setValue(cursorInfo);
-#warning this is a little funky with leveldb and friends
             }
             // ### this is filthy, we could likely think of something better
         }
@@ -1283,33 +1285,6 @@ String Project::sync()
         return String();
     }
 
-    if (mSymbolNames.path().isEmpty()) {
-        const Path p = dbPath();
-
-        assert(mSymbols.path().isEmpty());
-        assert(mUsr.path().isEmpty());
-        assert(mDependencies.path().isEmpty());
-        String err;
-        const unsigned int flags = DB<String, String>::Overwrite;
-        if (!mSymbols.load(p + "symbols", RTags::DatabaseVersion, flags, &err)) {
-            error() << "Failed to open symbols database" << err;
-            return String();
-        }
-        if (!mSymbolNames.load(p + "symbolnames", RTags::DatabaseVersion, flags, &err)) {
-            error() << "Failed to open symbolnames database" << err;
-            return String();
-        }
-        if (mSources.path().isEmpty() && !mSources.load(p + "sources", RTags::DatabaseVersion, flags, &err)) {
-            error() << "Failed to open sources database" << err;
-            return String();
-        }
-
-        if (!mGeneral.load(p + "db", RTags::DatabaseVersion, flags, &err)) {
-            error() << "Failed to open sources database" << err;
-            return String();
-        }
-    }
-
     auto symbolNameWriteScope = mSymbolNames.createWriteScope();
     auto symbolsWriteScope = mSymbols.createWriteScope();
     auto usrScope = mUsr.createWriteScope();
@@ -1360,12 +1335,4 @@ String Project::sync()
     mIndexData.clear();
     mTimer.start();
     return msg;
-}
-
-String Project::dbPath() const
-{
-    Path path = mPath;
-    RTags::encodePath(path);
-    const Path p = Server::instance()->options().dataDir + path + "/";
-    return p;
 }
