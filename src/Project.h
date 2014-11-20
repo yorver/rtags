@@ -130,7 +130,7 @@ private:
     void watch(const Path &file);
     void reloadFileManager();
     void addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles);
-    void addFixIts(const DependencyMapMemory &visited, const FixItMapMemory &fixIts);
+    void addFixIts(const DependencyMapMemory &visited, const FixItMap &fixIts);
     int startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles = UnsavedFiles());
     bool save();
     void onSynced();

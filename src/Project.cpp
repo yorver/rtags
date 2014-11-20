@@ -762,6 +762,32 @@ List<Source> Project::sources(uint32_t fileId) const
     return ret;
 }
 
+template <typename T>
+static inline int uniteSet(const Set<T> &original, const Set<T> &newValues, Set<T> &result)
+{
+    assert(!newValues.isEmpty());
+    if (original.isEmpty()) {
+        result = newValues;
+        return newValues.size();
+    }
+
+    int ret = 0;
+    bool united = false;
+    for (const T &t : newValues) {
+        if (united) {
+            if (result.insert(t))
+                ++ret;
+        } else if (!original.contains(t)) {
+            united = true;
+            result = original;
+            result.insert(t);
+            assert(!ret);
+            ++ret;
+        }
+    }
+    return ret;
+}
+
 void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles)
 {
     StopWatch timer;
@@ -772,12 +798,9 @@ void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &ne
         if (cur == mDependencies.end()) {
             mDependencies.set(it->first, it->second);
         } else {
-            Set<uint32_t> curValues = cur->second;
-
-            int count = 0;
-            curValues.unite(it->second, &count);
-            if (count) {
-                cur.setValue(curValues);
+            Set<uint32_t> merged;
+            if (uniteSet(cur->second, it->second, merged)) {
+                cur.setValue(merged);
             }
         }
         if (newFiles.isEmpty()) {
@@ -894,12 +917,11 @@ static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, Symbo
         if (cur == current.end()) {
             current.set(it->first, it->second);
         } else {
-            Set<Location> value = cur->second;
-            int count = 0;
-            value.unite(it->second, &count);
+            Set<Location> merged;
+            const int count = uniteSet(cur->second, it->second, merged);
             if (count) {
                 ret += count;
-                cur.setValue(value);
+                cur.setValue(merged);
             }
         }
         ++it;
@@ -910,7 +932,7 @@ static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, Symbo
 static inline void joinCursors(SymbolMap &symbols, const Set<Location> &locations)
 {
     for (auto it = locations.begin(); it != locations.end(); ++it) {
-        const auto c = symbols.find(*it);
+        auto c = symbols.find(*it);
         if (c != symbols.end()) {
             std::shared_ptr<CursorInfo> cursorInfo = c->second;
             bool changed = false;
@@ -931,15 +953,18 @@ static inline void joinCursors(SymbolMap &symbols, const Set<Location> &location
 
 static inline void writeUsr(const Hash<String, Set<Location> > &usr, UsrMap &current, SymbolMap &symbols)
 {
-    auto it = usr.begin();
-    const auto end = usr.end();
-    while (it != end) {
-        Set<Location> &value = current[it->first];
-        int count = 0;
-        value.unite(it->second, &count);
-        if (count && value.size() > 1)
-            joinCursors(symbols, value);
-        ++it;
+    for (const auto &it : usr) {
+        auto cur = current.find(it.first);
+        if (cur == current.end()) {
+            current.set(it.first, it.second);
+        } else {
+            Set<Location> merged;
+            if (uniteSet(cur->second, it.second, merged)) {
+                cur.setValue(merged);
+                if (merged.size() > 1)
+                    joinCursors(symbols, merged);
+            }
+        }
     }
 }
 
@@ -992,16 +1017,19 @@ static inline int writeSymbols(const SymbolMapMemory &symbols, SymbolMap &curren
     const auto end = symbols.end();
     while (it != end) {
         if (wasEmpty) {
-            current[it->first] = it->second;
+            current.set(it->first, it->second);
             ++ret;
         } else {
             auto cur = current.find(it->first);
             if (cur == current.end()) {
-                current[it->first] = it->second;
+                current.set(it->first, it->second);
                 ++ret;
             } else {
-                if (cur->second->unite(it->second))
+                if (cur->second->unite(it->second)) {
+                    current.set(it->first, cur->second);
+                    // hm...
                     ++ret;
+                }
             }
         }
         ++it;
@@ -1049,7 +1077,7 @@ bool Project::isSuspended(uint32_t file) const
     return mSuspendedFiles.contains(file);
 }
 
-void Project::addFixIts(const DependencyMapMemory &visited, const FixItMapMemory &fixIts)
+void Project::addFixIts(const DependencyMapMemory &visited, const FixItMap &fixIts)
 {
     for (auto it = visited.begin(); it != visited.end(); ++it) {
         const auto fit = fixIts.find(it->first);
@@ -1261,7 +1289,6 @@ String Project::sync()
         assert(mSymbols.path().isEmpty());
         assert(mUsr.path().isEmpty());
         assert(mDependencies.path().isEmpty());
-        assert(mFixIts.path().isEmpty());
         String err;
         const unsigned int flags = DB<String, String>::Overwrite;
         if (!mSymbols.load(p + "symbols", RTags::DatabaseVersion, flags, &err)) {
@@ -1287,7 +1314,6 @@ String Project::sync()
     auto symbolsWriteScope = mSymbols.createWriteScope();
     auto usrScope = mUsr.createWriteScope();
     auto dependenciesScope = mDependencies.createWriteScope();
-    auto fixitScope = mFixIts.createWriteScope();
     if (!mDirtyFiles.isEmpty()) {
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
         RTags::dirtySymbolNames(mSymbolNames, mDirtyFiles);

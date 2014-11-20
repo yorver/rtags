@@ -1028,6 +1028,7 @@ void Server::clearProjects()
     for (const auto &it : mProjects)
         it.second->unload();
     Rct::removeDirectory(mOptions.dataDir);
+    Path::mkdir(mOptions.dataDir);
     setCurrentProject(std::shared_ptr<Project>());
     mProjects.clear();
 }

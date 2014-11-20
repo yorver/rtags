@@ -67,8 +67,7 @@ typedef DB<uint32_t, Set<uint32_t> > DependencyMap;
 typedef Hash<uint32_t, Set<uint32_t> > DependencyMapMemory;
 typedef DB<uint64_t, Source> SourceMap;
 typedef Hash<uint64_t, Source> SourceMapMemory;
-typedef DB<uint32_t, Set<FixIt> > FixItMap;
-typedef Hash<uint32_t, Set<FixIt> > FixItMapMemory;
+typedef Hash<uint32_t, Set<FixIt> > FixItMap;
 typedef Map<Path, Set<String> > FilesMap;
 typedef Hash<Path, String> UnsavedFiles;
 
