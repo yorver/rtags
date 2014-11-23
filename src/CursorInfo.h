@@ -96,10 +96,9 @@ public:
     template <typename SymbolContainer>
     SymbolMapMemory declarationAndDefinition(const Location &loc, SymbolContainer &map) const;
 
-    template <typename SymbolContainer>
-    static typename SymbolContainer::iterator findCursorInfo(SymbolContainer &map, const Location &location)
+    static SymbolMapMemory::const_iterator findCursorInfo(const SymbolMapMemory &map, const Location &location)
     {
-        typename SymbolContainer::const_iterator it = map.lower_bound(location);
+        auto it = map.lower_bound(location);
         if (it != map.end() && it->first == location) {
             return it;
         } else if (it != map.begin()) {
@@ -111,6 +110,29 @@ public:
             }
         }
         return map.end();
+    }
+
+    static std::unique_ptr<SymbolMap::Iterator> findCursorInfo(SymbolMap &map, const Location &location)
+    {
+        auto it = map.lower_bound(location);
+        if (it->key() == location) {
+            return it;
+        }
+
+        if (it->isValid()) {
+            it->prev();
+            if (!it->isValid())
+                it->seekToFront();
+        } else {
+            it->seekToEnd();
+        }
+
+        if (it->key().fileId() == location.fileId() && location.line() == it->key().line()) {
+            const int off = location.column() - it->key().column();
+            if (it->value()->symbolLength > off)
+                return it;
+        }
+        return std::unique_ptr<SymbolMap::Iterator>();
     }
 
     std::shared_ptr<CursorInfo> copy() const;
@@ -302,36 +324,36 @@ template <typename SymbolContainer>
 inline SymbolMapMemory CursorInfo::declarationAndDefinition(const Location &loc, SymbolContainer &map) const
 {
     SymbolMapMemory cursors;
-    cursors[loc] = copy();
+    // cursors[loc] = copy();
 
-    Location l;
-    const std::shared_ptr<CursorInfo> t = bestTarget(map, &l);
+    // Location l;
+    // const std::shared_ptr<CursorInfo> t = bestTarget(map, &l);
 
-    if (t->kind == kind)
-        cursors[l] = t;
-    return cursors;
+    // if (t->kind == kind)
+    //     cursors[l] = t;
+    // return cursors;
 }
 
 template <typename SymbolContainer>
 inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(SymbolContainer &map, Location *loc) const
 {
-    const SymbolMapMemory targets = targetInfos(map);
+    // const SymbolMapMemory targets = targetInfos(map);
 
-    auto best = targets.end();
-    int bestRank = -1;
-    for (auto it = targets.begin(); it != targets.end(); ++it) {
-        const std::shared_ptr<CursorInfo> &ci = it->second;
-        const int r = targetRank(ci);
-        if (r > bestRank || (r == bestRank && ci->isDefinition())) {
-            bestRank = r;
-            best = it;
-        }
-    }
-    if (best != targets.end()) {
-        if (loc)
-            *loc = best->first;
-        return best->second;
-    }
+    // auto best = targets.end();
+    // int bestRank = -1;
+    // for (auto it = targets.begin(); it != targets.end(); ++it) {
+    //     const std::shared_ptr<CursorInfo> &ci = it->second;
+    //     const int r = targetRank(ci);
+    //     if (r > bestRank || (r == bestRank && ci->isDefinition())) {
+    //         bestRank = r;
+    //         best = it;
+    //     }
+    // }
+    // if (best != targets.end()) {
+    //     if (loc)
+    //         *loc = best->first;
+    //     return best->second;
+    // }
     return std::shared_ptr<CursorInfo>();
 }
 

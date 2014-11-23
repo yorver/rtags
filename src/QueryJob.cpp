@@ -155,15 +155,13 @@ bool QueryJob::write(const Location &location, unsigned /* flags */)
                 const unsigned int column = location.column();
                 while (true) {
                     it->prev();
-                    if (it->first.fileId() != fileId)
+                    if (it->key().fileId() != fileId)
                         break;
                     if (it->value()->isDefinition()
                         && RTags::isContainer(it->value()->kind)
                         && comparePosition(line, column, it->value()->startLine, it->value()->startColumn) >= 0
                         && comparePosition(line, column, it->value()->endLine, it->value()->endColumn) <= 0) {
                         out += "\tfunction: " + it->value()->symbolName;
-                        break;
-                    } else if (it == symbols.begin()) {
                         break;
                     }
                 }

@@ -37,38 +37,29 @@ int CursorInfoJob::execute()
         ciFlags |= CursorInfo::IgnoreTargets;
     if (!(queryFlags() & QueryMessage::CursorInfoIncludeReferences))
         ciFlags |= CursorInfo::IgnoreReferences;
-    int ret = 1;
-    if (it != map.end()) {
-        write(it->first);
-        write(it->second, ciFlags);
-        ret = 0;
-    } else {
-        it = map.lower_bound(location);
-        if (it == map.end())
-            --it;
-    }
-    ciFlags |= CursorInfo::IgnoreTargets|CursorInfo::IgnoreReferences;
-    if (it != map.begin() && queryFlags() & QueryMessage::CursorInfoIncludeParents) {
-        ret = 0;
+    if (!it->isValid())
+        return 1;
+    write(it->key());
+    write(it->value(), ciFlags);
+    if (queryFlags() & QueryMessage::CursorInfoIncludeParents) {
+        ciFlags |= CursorInfo::IgnoreTargets|CursorInfo::IgnoreReferences;
         const uint32_t fileId = location.fileId();
         const unsigned int line = location.line();
         const unsigned int column = location.column();
         while (true) {
-            --it;
-            if (it->first.fileId() != fileId)
+            it->prev();
+            if (it->key().fileId() != fileId)
                 break;
-            if (it->second->isDefinition()
-                && RTags::isContainer(it->second->kind)
-                && comparePosition(line, column, it->second->startLine, it->second->startColumn) >= 0
-                && comparePosition(line, column, it->second->endLine, it->second->endColumn) <= 0) {
+            if (it->value()->isDefinition()
+                && RTags::isContainer(it->value()->kind)
+                && comparePosition(line, column, it->value()->startLine, it->value()->startColumn) >= 0
+                && comparePosition(line, column, it->value()->endLine, it->value()->endColumn) <= 0) {
                 write("====================");
-                write(it->first);
-                write(it->second, ciFlags);
-                break;
-            } else if (it == map.begin()) {
+                write(it->key());
+                write(it->value(), ciFlags);
                 break;
             }
         }
     }
-    return ret;
+    return 0;
 }

@@ -84,13 +84,13 @@ int StatusJob::execute()
         DependencyMapMemory depsReversed;
 
         for (auto it = map.createIterator(); it->isValid(); it->next()) {
-            if (!write<256>("  %s (%d) is depended on by", Location::path(it->first).constData(), it->first))
+            if (!write<256>("  %s (%d) is depended on by", Location::path(it->key()).constData(), it->key()))
                 return 1;
-            const Set<uint32_t> &deps = it->second;
+            const Set<uint32_t> &deps = it->value();
             for (Set<uint32_t>::const_iterator dit = deps.begin(); dit != deps.end(); ++dit) {
                 if (!write<256>("    %s (%d)", Location::path(*dit).constData(), *dit))
                     return 1;
-                depsReversed[*dit].insert(it->first);
+                depsReversed[*dit].insert(it->key());
             }
             if (isAborted())
                 return 1;
@@ -109,13 +109,13 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "symbols")) {
         matched = true;
-        const SymbolMap &map = proj->symbols();
+        SymbolMap &map = proj->symbols();
         write(delimiter);
         write("symbols");
         write(delimiter);
-        for (SymbolMap::const_iterator it = map.begin(); it != map.end(); ++it) {
-            const Location loc = it->first;
-            const std::shared_ptr<CursorInfo> ci = it->second;
+        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+            const Location loc = it->key();
+            const std::shared_ptr<CursorInfo> ci = it->value();
             write(loc);
             write(ci);
             write("------------------------");
@@ -126,13 +126,13 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "symbolnames")) {
         matched = true;
-        const SymbolNameMap &map = proj->symbolNames();
+        SymbolNameMap &map = proj->symbolNames();
         write(delimiter);
         write("symbolnames");
         write(delimiter);
-        for (SymbolNameMap::const_iterator it = map.begin(); it != map.end(); ++it) {
-            write<128>("  %s", it->first.constData());
-            const Set<Location> &locations = it->second;
+        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+            write<128>("  %s", it->key().constData());
+            const Set<Location> &locations = it->value();
             for (Set<Location>::const_iterator lit = locations.begin(); lit != locations.end(); ++lit) {
                 const Location &loc = *lit;
                 write<1024>("    %s", loc.key().constData());
@@ -144,7 +144,7 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "sources")) {
         matched = true;
-        const SourceMap &map = proj->sources();
+        SourceMap &map = proj->sources();
         if (!write(delimiter) || !write("sources") || !write(delimiter))
             return 1;
         for (SourceMap::const_iterator it = map.begin(); it != map.end(); ++it) {

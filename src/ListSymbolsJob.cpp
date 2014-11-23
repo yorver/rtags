@@ -70,7 +70,7 @@ Set<String> ListSymbolsJob::imenu(const std::shared_ptr<Project> &project)
 {
     Set<String> out;
 
-    const SymbolMap &map = project->symbols();
+    SymbolMap &map = project->symbols();
     const List<String> paths = pathFilters();
     if (paths.isEmpty()) {
         error() << "--imenu must take path filters";
@@ -86,9 +86,9 @@ Set<String> ListSymbolsJob::imenu(const std::shared_ptr<Project> &project)
         const uint32_t fileId = Location::fileId(file);
         if (!fileId)
             continue;
-        for (SymbolMap::const_iterator it = map.lower_bound(Location(fileId, 1, 0));
-             it != map.end() && it->first.fileId() == fileId; ++it) {
-            const std::shared_ptr<CursorInfo> &cursorInfo = it->second;
+        auto it = map.lower_bound(Location(fileId, 1, 0));
+        while (it->isValid() && it->key().fileId() == fileId) {
+            const std::shared_ptr<CursorInfo> &cursorInfo = it->value();
             if (RTags::isReference(cursorInfo->kind))
                 continue;
             switch (cursorInfo->kind) {
@@ -104,13 +104,14 @@ Set<String> ListSymbolsJob::imenu(const std::shared_ptr<Project> &project)
                     break;
                 // fall through
             default: {
-                const String &symbolName = it->second->symbolName;
+                const String &symbolName = it->value()->symbolName;
                 if (!string.isEmpty() && !symbolName.contains(string))
                     continue;
                 out.insert(symbolName);
                 break; }
             }
         }
+        it->next();
     }
     return out;
 }
@@ -140,12 +141,12 @@ Set<String> ListSymbolsJob::listSymbols(const std::shared_ptr<Project> &project)
         lowerBound = string;
     }
 
-    const SymbolNameMap &map = project->symbolNames();
-    SymbolNameMap::const_iterator it = string.isEmpty() || caseInsensitive ? map.begin() : map.lower_bound(lowerBound);
+    SymbolNameMap &map = project->symbolNames();
+    auto it = (string.isEmpty() || caseInsensitive) ? map.createIterator() : map.lower_bound(lowerBound);
     int count = 0;
-    while (it != map.end()) {
-        const String &entry = it->first;
-        ++it;
+    while (it->isValid()) {
+        const String &entry = it->key();
+        it->next();
         if (!string.isEmpty()) {
             if (wildcard) {
                 if (!Rct::wildCmp(string.constData(), entry.constData(), cs)) {
@@ -162,7 +163,7 @@ Set<String> ListSymbolsJob::listSymbols(const std::shared_ptr<Project> &project)
         bool ok = true;
         if (hasFilter) {
             ok = false;
-            const Set<Location> &locations = it->second;
+            const Set<Location> &locations = it->value();
             for (Set<Location>::const_iterator i = locations.begin(); i != locations.end(); ++i) {
                 if (filter(i->path())) {
                     ok = true;

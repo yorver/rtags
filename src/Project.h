@@ -78,6 +78,12 @@ public:
     const UsrMap &usrs() const { return mUsr; }
     UsrMap &usrs() { return mUsr; }
 
+    SourceMap &sources() { return mSources; }
+    const SourceMap &sources() const { return mSources; }
+
+    DependencyMap &dependencies() { return mDependencies; }
+    const DependencyMap &dependencies() const { return mDependencies; }
+
 #warning make these shared_ptrs
 
     Set<Location> locations(const String &symbolName, uint32_t fileId = 0) const;
@@ -110,8 +116,6 @@ public:
     int reindex(const Match &match, const std::shared_ptr<QueryMessage> &query);
     int remove(const Match &match);
     void onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::shared_ptr<IndexData> &indexData);
-    const SourceMap &sources() const { return mSources; }
-    const DependencyMap &dependencies() const { return mDependencies; }
     const Set<Path> &watchedPaths() const { return mWatchedPaths; }
     bool isIndexing() const { return !mActiveJobs.isEmpty(); }
     void onFileModifiedOrRemoved(const Path &);
