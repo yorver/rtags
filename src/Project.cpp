@@ -96,19 +96,19 @@ public:
 
         std::shared_ptr<DependencyMap::WriteScope> writeScope;
         for (auto source = mSources.createIterator(); source->isValid(); source->next()) {
-            auto it = mDependencies.find(source.second.fileId);
-            if (it == mDependencies.end()) {
+            auto it = mDependencies.find(source->value().fileId);
+            if (!it->isValid()) {
                 if (!writeScope)
-                    writeScope = mDependencies.createWriteScope();
+                    writeScope = mDependencies.createWriteScope(8 * 1024);
                 Set<uint32_t> deps;
-                deps.insert(source.second.fileId);
-                mDependencies.set(source.second.fileId, deps);
-            } else if (!it->second.contains(source.second.fileId)) {
+                deps.insert(source->value().fileId);
+                mDependencies.set(source->value().fileId, deps);
+            } else if (!it->value().contains(source->value().fileId)) {
                 if (!writeScope)
-                    writeScope = mDependencies.createWriteScope();
-                auto deps = it->second;
-                deps.insert(source.second.fileId);
-                it.setValue(deps);
+                    writeScope = mDependencies.createWriteScope(8 * 1024);
+                auto deps = it->value();
+                deps.insert(source->value().fileId);
+                it->setValue(deps);
             }
             // if we save before finishing a sync we may have saved mSources
             // without ever having parsed them, if so they won't depend on
@@ -229,12 +229,12 @@ public:
 class IfModifiedDirty : public ComplexDirty
 {
 public:
-    IfModifiedDirty(const DependencyMap &dependencies, const Match &match = Match())
+    IfModifiedDirty(DependencyMap &dependencies, const Match &match = Match())
         : ComplexDirty(), mMatch(match)
     {
-        for (auto it : dependencies) {
-            const uint32_t dependee = it.first;
-            const Set<uint32_t> &dependents = it.second;
+        for (auto it = dependencies.createIterator(); it->isValid(); it->next()) {
+            const uint32_t dependee = it->key();
+            const Set<uint32_t> &dependents = it->value();
             for (auto dependent : dependents) {
                 mReversedDependencies[dependent].insert(dependee);
             }
@@ -360,8 +360,8 @@ void Project::updateContents(RestoreThread *thread)
             deserializer >> mVisitedFiles;
         }
 
-        for (const auto &dep : mDependencies) {
-            watch(Location::path(dep.first));
+        for (auto dep = mDependencies.createIterator(); dep->isValid(); dep->next()) {
+            watch(Location::path(dep->key()));
         }
 
         if (Server::instance()->suspended()) {
@@ -372,13 +372,13 @@ void Project::updateContents(RestoreThread *thread)
 
         {
             std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
-            auto it = mDependencies.begin();
+            auto it = mDependencies.createIterator();
 
-            while (it != mDependencies.end()) {
-                const Path path = Location::path(it->first);
+            while (it->isValid()) {
+                const Path path = Location::path(it->key());
                 if (!path.isFile()) {
                     error() << path << "seems to have disappeared";
-                    dirty.get()->insertDirtyFile(it->first);
+                    dirty.get()->insertDirtyFile(it->key());
 
                     const Set<uint32_t> &dependents = it->second;
                     for (auto dependent : dependents) {
@@ -652,7 +652,7 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
             auto it = mSources.lower_bound(Source::key(job->source.fileId, 0));
             if (it != mSources.end()) {
                 uint32_t f, b;
-                Source::decodeKey(it->first, f, b);
+                Source::decodeKey(it->key(), f, b);
                 if (f == job->source.fileId) {
                     // When we're not watching the file system, we ignore
                     // updating compiles. This means that you always have to
@@ -676,7 +676,7 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
                 bool unsetActive = false;
                 while (it != mSources.end()) {
                     uint32_t f, b;
-                    Source::decodeKey(it->first, f, b);
+                    Source::decodeKey(it->key(), f, b);
                     if (f != job->source.fileId)
                         break;
 
@@ -755,7 +755,7 @@ List<Source> Project::sources(uint32_t fileId) const
         auto it = mSources.lower_bound(Source::key(fileId, 0));
         while (it != mSources.end()) {
             uint32_t f, b;
-            Source::decodeKey(it->first, f, b);
+            Source::decodeKey(it->key(), f, b);
             if (f != fileId)
                 break;
             ret.append(it->second);
@@ -797,9 +797,9 @@ void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &ne
 
     const auto end = deps.end();
     for (auto it = deps.begin(); it != end; ++it) {
-        auto cur = mDependencies.find(it->first);
+        auto cur = mDependencies.find(it->key());
         if (cur == mDependencies.end()) {
-            mDependencies.set(it->first, it->second);
+            mDependencies.set(it->key(), it->second);
         } else {
             Set<uint32_t> merged;
             if (uniteSet(cur->second, it->second, merged)) {
@@ -811,7 +811,7 @@ void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &ne
         } else {
             newFiles.unite(it->second);
         }
-        newFiles.insert(it->first);
+        newFiles.insert(it->key());
     }
 }
 
@@ -824,7 +824,7 @@ Set<uint32_t> Project::dependencies(uint32_t fileId, DependencyMode mode) const
     const auto end = mDependencies.end();
     for (auto it = mDependencies.begin(); it != end; ++it) {
         if (it->second.contains(fileId))
-            ret.insert(it->first);
+            ret.insert(it->key());
     }
     return ret;
 }
@@ -836,7 +836,7 @@ int Project::reindex(const Match &match, const std::shared_ptr<QueryMessage> &qu
 
         const auto end = mDependencies.constEnd();
         for (auto it = mDependencies.constBegin(); it != end; ++it) {
-            if (!dirtyFiles.contains(it->first) && (match.isEmpty() || match.match(Location::path(it->first)))) {
+            if (!dirtyFiles.contains(it->key()) && (match.isEmpty() || match.match(Location::path(it->first)))) {
                 dirtyFiles.insert(it->first);
             }
         }

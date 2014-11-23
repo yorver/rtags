@@ -147,8 +147,8 @@ int StatusJob::execute()
         SourceMap &map = proj->sources();
         if (!write(delimiter) || !write("sources") || !write(delimiter))
             return 1;
-        for (SourceMap::const_iterator it = map.begin(); it != map.end(); ++it) {
-            if (!write<512>("  %s: %s", it->second.sourceFile().constData(), it->second.toString().constData()))
+        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+            if (!write<512>("  %s: %s", it->value().sourceFile().constData(), it->value().toString().constData()))
                 return 1;
         }
     }

@@ -39,17 +39,17 @@ int ReferencesJob::execute()
         if (!symbolName.isEmpty())
             locations = proj->locations(symbolName);
         if (!locations.isEmpty()) {
-            const SymbolMap &map = proj->symbols();
+            SymbolMap &map = proj->symbols();
 
             for (Set<Location>::const_iterator it = locations.begin(); it != locations.end(); ++it) {
                 Location pos;
-                SymbolMap::const_iterator found = CursorInfo::findCursorInfo(map, *it);
-                if (found == map.end())
+                auto found = CursorInfo::findCursorInfo(map, *it);
+                if (!found->isValid())
                     continue;
-                pos = found->first;
+                pos = found->key();
                 if (startLocation.isNull())
                     startLocation = pos;
-                std::shared_ptr<CursorInfo> cursorInfo = found->second;
+                std::shared_ptr<CursorInfo> cursorInfo = found->value();
                 if (!cursorInfo)
                     continue;
                 if (RTags::isReference(cursorInfo->kind)) {

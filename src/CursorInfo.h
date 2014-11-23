@@ -360,54 +360,54 @@ inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(SymbolContainer &map, 
 template <typename SymbolContainer>
 inline SymbolMapMemory CursorInfo::targetInfos(SymbolContainer &map) const
 {
-    SymbolMapMemory ret;
-    for (auto it = targets.begin(); it != targets.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, *it);
-        if (found != map.end()) {
-            ret[*it] = found->second;
-        } else {
-            ret[*it] = std::make_shared<CursorInfo>();
-            // we need this one for inclusion directives which target a
-            // non-existing CursorInfo
-        }
-    }
-    return ret;
+    // SymbolMapMemory ret;
+    // for (auto it = targets.begin(); it != targets.end(); ++it) {
+    //     auto found = CursorInfo::findCursorInfo(map, *it);
+    //     if (found != map.end()) {
+    //         ret[*it] = found->second;
+    //     } else {
+    //         ret[*it] = std::make_shared<CursorInfo>();
+    //         // we need this one for inclusion directives which target a
+    //         // non-existing CursorInfo
+    //     }
+    // }
+    // return ret;
 }
 
 template <typename SymbolContainer>
 inline SymbolMapMemory CursorInfo::referenceInfos(SymbolContainer &map) const
 {
-    SymbolMapMemory ret;
-    for (auto it = references.begin(); it != references.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, *it);
-        if (found != map.end()) {
-            ret[*it] = found->second;
-        }
-    }
-    return ret;
+    // SymbolMapMemory ret;
+    // for (auto it = references.begin(); it != references.end(); ++it) {
+    //     auto found = CursorInfo::findCursorInfo(map, *it);
+    //     if (found != map.end()) {
+    //         ret[*it] = found->second;
+    //     }
+    // }
+    // return ret;
 }
 
 template <typename SymbolContainer>
 inline SymbolMapMemory CursorInfo::callers(const Location &loc, SymbolContainer &map) const
 {
-    SymbolMapMemory ret;
-    const SymbolMapMemory cursors = virtuals(loc, map);
-    const bool isClazz = isClass();
-    for (auto c = cursors.begin(); c != cursors.end(); ++c) {
-        for (auto it = c->second->references.begin(); it != c->second->references.end(); ++it) {
-            const auto found = CursorInfo::findCursorInfo(map, *it);
-            if (found == map.end())
-                continue;
-            if (isClazz && found->second->kind == CXCursor_CallExpr)
-                continue;
-            if (CursorInfo::isReference(found->second->kind)) { // is this always right?
-                ret[*it] = found->second;
-            } else if (kind == CXCursor_Constructor && (found->second->kind == CXCursor_VarDecl || found->second->kind == CXCursor_FieldDecl)) {
-                ret[*it] = found->second;
-            }
-        }
-    }
-    return ret;
+    // SymbolMapMemory ret;
+    // const SymbolMapMemory cursors = virtuals(loc, map);
+    // const bool isClazz = isClass();
+    // for (auto c = cursors.begin(); c != cursors.end(); ++c) {
+    //     for (auto it = c->second->references.begin(); it != c->second->references.end(); ++it) {
+    //         const auto found = CursorInfo::findCursorInfo(map, *it);
+    //         if (found == map.end())
+    //             continue;
+    //         if (isClazz && found->second->kind == CXCursor_CallExpr)
+    //             continue;
+    //         if (CursorInfo::isReference(found->second->kind)) { // is this always right?
+    //             ret[*it] = found->second;
+    //         } else if (kind == CXCursor_Constructor && (found->second->kind == CXCursor_VarDecl || found->second->kind == CXCursor_FieldDecl)) {
+    //             ret[*it] = found->second;
+    //         }
+    //     }
+    // }
+    // return ret;
 }
 
 
@@ -415,47 +415,47 @@ template <typename SymbolContainer>
 inline void CursorInfo::allImpl(SymbolContainer &map, const Location &loc, const std::shared_ptr<CursorInfo> &info,
                                 SymbolMapMemory &out, Mode mode, unsigned kind)
 {
-    if (out.contains(loc))
-        return;
-    out[loc] = info;
-    const SymbolMapMemory targets = info->targetInfos(map);
-    for (auto t = targets.begin(); t != targets.end(); ++t) {
-        bool ok = false;
-        switch (mode) {
-        case VirtualRefs:
-        case NormalRefs:
-            ok = (t->second->kind == kind);
-            break;
-        case ClassRefs:
-            ok = (t->second->isClass() || t->second->kind == CXCursor_Destructor || t->second->kind == CXCursor_Constructor);
-            break;
-        }
-        if (ok)
-            allImpl(map, t->first, t->second, out, mode, kind);
-    }
-    const SymbolMapMemory refs = info->referenceInfos(map);
-    for (auto r = refs.begin(); r != refs.end(); ++r) {
-        switch (mode) {
-        case NormalRefs:
-            out[r->first] = r->second;
-            break;
-        case VirtualRefs:
-            if (r->second->kind == kind) {
-                allImpl(map, r->first, r->second, out, mode, kind);
-            } else {
-                out[r->first] = r->second;
-            }
-            break;
-        case ClassRefs:
-            if (info->isClass()) // for class/struct we want the references inserted directly regardless and also recursed
-                out[r->first] = r->second;
-            if (r->second->isClass()
-                || r->second->kind == CXCursor_Destructor
-                || r->second->kind == CXCursor_Constructor) { // if is a constructor/destructor/class reference we want to recurse it
-                allImpl(map, r->first, r->second, out, mode, kind);
-            }
-        }
-    }
+    // if (out.contains(loc))
+    //     return;
+    // out[loc] = info;
+    // const SymbolMapMemory targets = info->targetInfos(map);
+    // for (auto t = targets.begin(); t != targets.end(); ++t) {
+    //     bool ok = false;
+    //     switch (mode) {
+    //     case VirtualRefs:
+    //     case NormalRefs:
+    //         ok = (t->second->kind == kind);
+    //         break;
+    //     case ClassRefs:
+    //         ok = (t->second->isClass() || t->second->kind == CXCursor_Destructor || t->second->kind == CXCursor_Constructor);
+    //         break;
+    //     }
+    //     if (ok)
+    //         allImpl(map, t->first, t->second, out, mode, kind);
+    // }
+    // const SymbolMapMemory refs = info->referenceInfos(map);
+    // for (auto r = refs.begin(); r != refs.end(); ++r) {
+    //     switch (mode) {
+    //     case NormalRefs:
+    //         out[r->first] = r->second;
+    //         break;
+    //     case VirtualRefs:
+    //         if (r->second->kind == kind) {
+    //             allImpl(map, r->first, r->second, out, mode, kind);
+    //         } else {
+    //             out[r->first] = r->second;
+    //         }
+    //         break;
+    //     case ClassRefs:
+    //         if (info->isClass()) // for class/struct we want the references inserted directly regardless and also recursed
+    //             out[r->first] = r->second;
+    //         if (r->second->isClass()
+    //             || r->second->kind == CXCursor_Destructor
+    //             || r->second->kind == CXCursor_Constructor) { // if is a constructor/destructor/class reference we want to recurse it
+    //             allImpl(map, r->first, r->second, out, mode, kind);
+    //         }
+    //     }
+    // }
 }
 
 #endif
