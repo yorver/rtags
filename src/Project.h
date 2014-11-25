@@ -50,7 +50,6 @@ public:
         Syncing
     };
     State state() const { return mState; }
-    void init();
 
     enum FileManagerMode {
         FileManager_Asynchronous,

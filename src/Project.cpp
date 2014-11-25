@@ -334,14 +334,6 @@ Project::~Project()
     assert(mActiveJobs.isEmpty());
 }
 
-void Project::init()
-{
-    assert(mState == Unloaded);
-    mState = Inited;
-    fileManager.reset(new FileManager);
-    fileManager->init(shared_from_this(), FileManager::Asynchronous);
-}
-
 void Project::updateContents(RestoreThread *thread)
 {
     assert(EventLoop::isMainThread());
