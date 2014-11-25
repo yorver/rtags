@@ -146,7 +146,7 @@ endif ()
 #   ${SYSTEM_LIBS}
 # )
 
-add_executable(rc rc.cpp RClient.cpp foobar.cpp)
+add_executable(rc rc.cpp RClient.cpp)
 add_dependencies(rc rct shared)
 target_link_libraries(rc shared rct ${LIBS})
 
