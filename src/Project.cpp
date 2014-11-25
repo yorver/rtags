@@ -61,6 +61,7 @@ public:
         return (openDB(t->mSymbols, t->mDBPath, "symbols")
                 && openDB(t->mSymbolNames, t->mDBPath, "symbolnames")
                 && openDB(t->mUsr, t->mDBPath, "usr")
+                && openDB(t->mDependencies, t->mDBPath, "dependencies")
                 && openDB(t->mSources, t->mDBPath, "sources")
                 && openDB(t->mGeneral, t->mDBPath, "db"));
     }
@@ -93,8 +94,9 @@ public:
 
     bool restore()
     {
-        if (!openDBs(this))
+        if (!openDBs(this)) {
             return false; // there's really no way to recover from this
+        }
 
         std::shared_ptr<DependencyMap::WriteScope> writeScope;
         for (auto source = mSources->createIterator(); source->isValid(); source->next()) {
@@ -421,6 +423,8 @@ void Project::updateContents(RestoreThread *thread)
 
 bool Project::load(FileManagerMode mode)
 {
+    if (!mFiles)
+        mFiles.reset(new FilesMap);
     switch (mState) {
     case Unloaded:
         fileManager.reset(new FileManager);
@@ -436,8 +440,17 @@ bool Project::load(FileManagerMode mode)
         return false;
     }
     mState = Loading;
+#ifdef RCT_DB_USE_ROCKSDB
+#warning foo
+#endif
+#ifdef RCT_DB_USE_MAP
+#warning bar
     RestoreThread *thread = new RestoreThread(shared_from_this());
     thread->start();
+#else
+    RestoreThread::openDBs(this);
+    mState = Loaded;
+#endif
     return true;
 }
 
@@ -468,13 +481,13 @@ void Project::unload()
     mActiveJobs.clear();
     fileManager.reset();
 
-    mSymbols->close();
-    mSymbolNames->close();
-    mDependencies->close();
-    mUsr->close();
-    mSources->close();
+    mSymbols.reset();
+    mSymbolNames.reset();
+    mDependencies.reset();
+    mUsr.reset();
+    mSources.reset();
 
-    mFiles->clear();
+    mFiles.reset();
     mVisitedFiles.clear();
     mState = Unloaded;
     mSyncTimer.stop();
@@ -991,7 +1004,7 @@ static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &sy
         }
         if (!targets.isEmpty()) {
             for (const auto &r : ref.second) {
-                auto &referenceCursor = (*symbols)[r];
+                auto referenceCursor = (*symbols)[r];
                 assert(referenceCursor);
                 for (const auto &t : targets) {
                     referenceCursor->targets.insert(t.first);

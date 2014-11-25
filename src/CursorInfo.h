@@ -108,7 +108,7 @@ public:
 
     static std::unique_ptr<SymbolMap::Iterator> findCursorInfo(const std::shared_ptr<SymbolMap> &map, const Location &location)
     {
-        auto it = map->lower_bound(location);
+        std::unique_ptr<DB<Location, std::shared_ptr<CursorInfo> >::Iterator> it = map->lower_bound(location);
         if (it->key() == location) {
             return it;
         }
