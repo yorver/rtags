@@ -38,7 +38,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 template <typename T>
 static void dirtySymbolNamesOrUsr(T &map, const Set<uint32_t> &dirty)
 {
-    auto it = map.createIterator();
+    auto it = map->createIterator();
     while (it->isValid()) {
         Set<Location> locations = it->value();
         bool locationsDirty = false;
@@ -64,14 +64,14 @@ static void dirtySymbolNamesOrUsr(T &map, const Set<uint32_t> &dirty)
 
 namespace RTags {
 
-void dirtySymbolNames(SymbolNameMap &map, const Set<uint32_t> &dirty)
+void dirtySymbolNames(const std::shared_ptr<SymbolNameMap> &map, const Set<uint32_t> &dirty)
 {
     dirtySymbolNamesOrUsr(map, dirty);
 }
 
-void dirtySymbols(SymbolMap &map, const Set<uint32_t> &dirty)
+void dirtySymbols(const std::shared_ptr<SymbolMap> &map, const Set<uint32_t> &dirty)
 {
-    auto it = map.createIterator();
+    auto it = map->createIterator();
     while (it->isValid()) {
         if (dirty.contains(it->key().fileId())) {
             it->erase();
@@ -83,7 +83,7 @@ void dirtySymbols(SymbolMap &map, const Set<uint32_t> &dirty)
         }
     }
 }
-void dirtyUsr(UsrMap &map, const Set<uint32_t> &dirty)
+void dirtyUsr(const std::shared_ptr<UsrMap> &map, const Set<uint32_t> &dirty)
 {
     dirtySymbolNamesOrUsr(map, dirty);
 }

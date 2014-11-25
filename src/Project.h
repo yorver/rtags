@@ -66,25 +66,12 @@ public:
 
     bool match(const Match &match, bool *indexed = 0) const;
 
-    const SymbolMap &symbols() const { return mSymbols; }
-    SymbolMap &symbols()  { return mSymbols; }
-
-    const SymbolNameMap &symbolNames() const { return mSymbolNames; }
-    SymbolNameMap &symbolNames()  { return mSymbolNames; }
-
-    const FilesMap &files() const { return mFiles; }
-    FilesMap &files() { return mFiles; }
-
-    const UsrMap &usrs() const { return mUsr; }
-    UsrMap &usrs() { return mUsr; }
-
-    SourceMap &sources() { return mSources; }
-    const SourceMap &sources() const { return mSources; }
-
-    DependencyMap &dependencies() { return mDependencies; }
-    const DependencyMap &dependencies() const { return mDependencies; }
-
-#warning make these shared_ptrs
+    std::shared_ptr<SymbolMap> symbols() { return mSymbols; }
+    std::shared_ptr<SymbolNameMap> symbolNames() const { return mSymbolNames; }
+    std::shared_ptr<FilesMap> files() const { return mFiles; }
+    std::shared_ptr<UsrMap> usrs() const { return mUsr; }
+    std::shared_ptr<SourceMap> sources() const { return mSources; }
+    std::shared_ptr<DependencyMap> dependencies() const { return mDependencies; }
 
     Set<Location> locations(const String &symbolName, uint32_t fileId = 0) const;
     SymbolMapMemory symbols(uint32_t fileId) const;
@@ -150,10 +137,14 @@ private:
     Path mDBPath;
     State mState;
 
-    SymbolMap mSymbols;
-    SymbolNameMap mSymbolNames;
-    UsrMap mUsr;
-    FilesMap mFiles;
+    // these need to be mutable since we don't have a non-const iterator for DB
+    mutable std::shared_ptr<DependencyMap> mDependencies;
+    mutable std::shared_ptr<SourceMap> mSources;
+    mutable std::shared_ptr<SymbolMap> mSymbols;
+    mutable std::shared_ptr<SymbolNameMap> mSymbolNames;
+    std::shared_ptr<UsrMap> mUsr;
+    std::shared_ptr<FilesMap> mFiles;
+    std::shared_ptr<DB<String, String> > mGeneral;
 
     Hash<uint32_t, Path> mVisitedFiles;
     Hash<uint64_t, std::pair<std::shared_ptr<IndexerJob>, std::shared_ptr<IndexData> > > mPendingIndexData;
@@ -172,11 +163,8 @@ private:
     // startDirtyJobs with mDirtyTimer
     StopWatch mTimer;
     FileSystemWatcher mWatcher;
-    DependencyMap mDependencies;
-    SourceMap mSources;
     Set<Path> mWatchedPaths;
     FixItMap mFixIts;
-    DB<String, String> mGeneral;
 
     Set<uint32_t> mSuspendedFiles;
 

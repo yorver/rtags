@@ -55,8 +55,8 @@ void FileManager::onRecurseJobFinished(const Set<Path> &paths)
 
     std::shared_ptr<Project> project = mProject.lock();
     assert(project);
-    FilesMap &map = project->files();
-    map.clear();
+    std::shared_ptr<FilesMap> map = project->files();
+    map->clear();
     mWatcher.clear();
     for (Set<Path>::const_iterator it = paths.begin(); it != paths.end(); ++it) {
         const Path parent = it->parentDir();
@@ -65,11 +65,11 @@ void FileManager::onRecurseJobFinished(const Set<Path> &paths)
             continue;
         }
         assert(!parent.isEmpty());
-        Set<String> &dir = map[parent];
+        Set<String> &dir = (*map)[parent];
         watch(parent);
         dir.insert(it->fileName());
     }
-    assert(!map.contains(""));
+    assert(!map->contains(""));
 }
 
 void FileManager::onFileAdded(const Path &path)
@@ -93,17 +93,17 @@ void FileManager::onFileAdded(const Path &path)
 
     std::shared_ptr<Project> project = mProject.lock();
     assert(project);
-    FilesMap &map = project->files();
+    const std::shared_ptr<FilesMap> map = project->files();
     const Path parent = path.parentDir();
     if (!parent.isEmpty()) {
-        Set<String> &dir = map[parent];
+        Set<String> &dir = (*map)[parent];
         watch(parent);
         dir.insert(path.fileName());
     } else {
         error() << "Got empty parent here" << path;
         reload(Asynchronous);
     }
-    assert(!map.contains(Path()));
+    assert(!map->contains(Path()));
 }
 
 void FileManager::onFileRemoved(const Path &path)
@@ -111,18 +111,18 @@ void FileManager::onFileRemoved(const Path &path)
     // error() << "File removed" << path;
     std::lock_guard<std::mutex> lock(mMutex);
     std::shared_ptr<Project> project = mProject.lock();
-    FilesMap &map = project->files();
-    if (map.contains(path)) {
+    const std::shared_ptr<FilesMap> map = project->files();
+    if (map->contains(path)) {
         reload(Asynchronous);
         return;
     }
     const Path parent = path.parentDir();
-    if (map.contains(parent)) {
-        Set<String> &dir = map[parent];
+    if (map->contains(parent)) {
+        Set<String> &dir = (*map)[parent];
         dir.remove(path.fileName());
         if (dir.isEmpty()) {
             mWatcher.unwatch(parent);
-            map.remove(parent);
+            map->remove(parent);
         }
     }
 }

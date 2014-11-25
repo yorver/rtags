@@ -78,12 +78,12 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "dependencies")) {
         matched = true;
-        DependencyMap &map = proj->dependencies();
+        const std::shared_ptr<DependencyMap> map = proj->dependencies();
         if (!write(delimiter) || !write("dependencies") || !write(delimiter))
             return 1;
         DependencyMapMemory depsReversed;
 
-        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+        for (auto it = map->createIterator(); it->isValid(); it->next()) {
             if (!write<256>("  %s (%d) is depended on by", Location::path(it->key()).constData(), it->key()))
                 return 1;
             const Set<uint32_t> &deps = it->value();
@@ -109,11 +109,11 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "symbols")) {
         matched = true;
-        SymbolMap &map = proj->symbols();
+        const std::shared_ptr<SymbolMap> map = proj->symbols();
         write(delimiter);
         write("symbols");
         write(delimiter);
-        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+        for (auto it = map->createIterator(); it->isValid(); it->next()) {
             const Location loc = it->key();
             const std::shared_ptr<CursorInfo> ci = it->value();
             write(loc);
@@ -126,11 +126,11 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "symbolnames")) {
         matched = true;
-        SymbolNameMap &map = proj->symbolNames();
+        const std::shared_ptr<SymbolNameMap> map = proj->symbolNames();
         write(delimiter);
         write("symbolnames");
         write(delimiter);
-        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+        for (auto it = map->createIterator(); it->isValid(); it->next()) {
             write<128>("  %s", it->key().constData());
             const Set<Location> &locations = it->value();
             for (Set<Location>::const_iterator lit = locations.begin(); lit != locations.end(); ++lit) {
@@ -144,10 +144,10 @@ int StatusJob::execute()
 
     if (query.isEmpty() || !strcasecmp(query.constData(), "sources")) {
         matched = true;
-        SourceMap &map = proj->sources();
+        const std::shared_ptr<SourceMap> map = proj->sources();
         if (!write(delimiter) || !write("sources") || !write(delimiter))
             return 1;
-        for (auto it = map.createIterator(); it->isValid(); it->next()) {
+        for (auto it = map->createIterator(); it->isValid(); it->next()) {
             if (!write<512>("  %s: %s", it->value().sourceFile().constData(), it->value().toString().constData()))
                 return 1;
         }

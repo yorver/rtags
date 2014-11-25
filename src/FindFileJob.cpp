@@ -61,14 +61,14 @@ int FindFileJob::execute()
         out.append(srcRoot);
         assert(srcRoot.endsWith('/'));
     }
-    const FilesMap& dirs = proj->files();
-    FilesMap::const_iterator dirit = dirs.begin();
+    std::shared_ptr<FilesMap> dirs = proj->files();
+    FilesMap::const_iterator dirit = dirs->begin();
     bool foundExact = false;
     const int patternSize = mPattern.size();
     List<String> matches;
     const bool preferExact = queryFlags() & QueryMessage::FindFilePreferExact;
     int ret = 1;
-    while (dirit != dirs.end()) {
+    while (dirit != dirs->end()) {
         const Path &dir = dirit->first;
         if (dir.size() < srcRoot.size()) {
             continue;

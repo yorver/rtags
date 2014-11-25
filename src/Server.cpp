@@ -765,23 +765,23 @@ void Server::generateTest(const std::shared_ptr<QueryMessage> &query, Connection
 
         List<Value> tests;
 
-        const SymbolMap &map = project->symbols();
+        const std::shared_ptr<SymbolMap> map = project->symbols();
         List<Value> noContextFlags;
         noContextFlags.append("no-context");
-        auto it = map.lower_bound(Location(source.fileId, 0, 0));
-        while (it != map.end() && it->first.fileId() == source.fileId) {
+        auto it = map->lower_bound(Location(source.fileId, 0, 0));
+        while (it->isValid() && it->key().fileId() == source.fileId) {
             Location loc;
-            if (it->second->bestTarget(map, &loc) && loc.fileId() == source.fileId) {
+            if (it->value()->bestTarget(map, &loc) && loc.fileId() == source.fileId) {
                 Map<String, Value> test;
                 test["type"] = "follow-location";
                 test["flags"] = noContextFlags;
-                test["location"] = String::format<128>("%s:%d:%d:", it->first.path().fileName(), it->first.line(), it->first.column());
+                test["location"] = String::format<128>("%s:%d:%d:", it->key().path().fileName(), it->key().line(), it->key().column());
                 List<Value> output;
                 output.append(String::format<128>("%s:%d:%d:", loc.path().fileName(), loc.line(), loc.column()));
                 test["output"] = output;
                 tests.append(test);
             }
-            ++it;
+            it->next();
         }
         out["tests"] = tests;
         conn->finish(out.toJSON(true));
@@ -1314,16 +1314,16 @@ void Server::sources(const std::shared_ptr<QueryMessage> &query, Connection *con
         if (project->state() != Project::Loaded) {
             conn->write("Project loading");
         } else {
-            const SourceMap &infos = project->sources();
-            for (const auto &it : infos) {
-                if (match.isEmpty() || match.match(it.second.sourceFile())) {
+            const std::shared_ptr<SourceMap> infos = project->sources();
+            for (auto it = infos->createIterator(); it->isValid(); it->next()) {
+                if (match.isEmpty() || match.match(it->value().sourceFile())) {
                     if (flagsOnly) {
                         conn->write<128>("%s%s%s",
-                                         it.second.sourceFile().constData(),
+                                         it->value().sourceFile().constData(),
                                          splitLine ? "\n" : ": ",
-                                         String::join(it.second.toCommandLine(0), splitLine ? '\n' : ' ').constData());
+                                         String::join(it->value().toCommandLine(0), splitLine ? '\n' : ' ').constData());
                     } else {
-                        conn->write(it.second.toString());
+                        conn->write(it->value().toString());
                     }
                 }
             }
@@ -1445,13 +1445,10 @@ bool Server::saveFileIds()
     const uint32_t lastId = Location::lastId();
     if (mLastFileId == lastId)
         return true;
-    const Hash<Path, uint32_t> pathsToIds = Location::pathsToIds();
     String data;
-    {
-        Serializer serializer(data);
-        serializer << pathsToIds;
-    }
-    auto writeScope = mDB.createWriteScope();
+    Serializer serializer(data);
+    Location::serialize(serializer);
+    auto writeScope = mDB.createWriteScope(data.size() + 1024);
     mDB.set("fileIds", data); // can this fail?
     if (!writeScope->flush()) {
         error() << "Failed to save file ids" << mDB.path();

@@ -39,7 +39,7 @@ int ReferencesJob::execute()
         if (!symbolName.isEmpty())
             locations = proj->locations(symbolName);
         if (!locations.isEmpty()) {
-            SymbolMap &map = proj->symbols();
+            const std::shared_ptr<SymbolMap> map = proj->symbols();
 
             for (Set<Location>::const_iterator it = locations.begin(); it != locations.end(); ++it) {
                 Location pos;

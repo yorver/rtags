@@ -200,6 +200,12 @@ public:
         LOCK();
         return sPathsToIds;
     }
+
+    static void serialize(Serializer &serializer)
+    {
+        LOCK();
+        serializer << sPathsToIds;
+    }
     static int count()
     {
         LOCK();

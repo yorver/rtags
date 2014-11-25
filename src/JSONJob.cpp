@@ -42,7 +42,7 @@ void JSONJob::execute()
     const DependencyMap deps = proj->dependencies();
     // error() << deps.keys();
     assert(proj);
-    const SymbolMap &map = proj->symbols();
+    const std::shared_ptr<SymbolMap> map = proj->symbols();
     write("{");
     bool firstObject = true;
     for (DependencyMap::const_iterator it = deps.begin(); it != deps.end(); ++it) {

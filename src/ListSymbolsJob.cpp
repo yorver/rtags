@@ -70,7 +70,7 @@ Set<String> ListSymbolsJob::imenu(const std::shared_ptr<Project> &project)
 {
     Set<String> out;
 
-    SymbolMap &map = project->symbols();
+    const std::shared_ptr<SymbolMap> map = project->symbols();
     const List<String> paths = pathFilters();
     if (paths.isEmpty()) {
         error() << "--imenu must take path filters";
@@ -86,7 +86,7 @@ Set<String> ListSymbolsJob::imenu(const std::shared_ptr<Project> &project)
         const uint32_t fileId = Location::fileId(file);
         if (!fileId)
             continue;
-        auto it = map.lower_bound(Location(fileId, 1, 0));
+        auto it = map->lower_bound(Location(fileId, 1, 0));
         while (it->isValid() && it->key().fileId() == fileId) {
             const std::shared_ptr<CursorInfo> &cursorInfo = it->value();
             if (RTags::isReference(cursorInfo->kind))
@@ -141,8 +141,8 @@ Set<String> ListSymbolsJob::listSymbols(const std::shared_ptr<Project> &project)
         lowerBound = string;
     }
 
-    SymbolNameMap &map = project->symbolNames();
-    auto it = (string.isEmpty() || caseInsensitive) ? map.createIterator() : map.lower_bound(lowerBound);
+    const std::shared_ptr<SymbolNameMap> map = project->symbolNames();
+    auto it = (string.isEmpty() || caseInsensitive) ? map->createIterator() : map->lower_bound(lowerBound);
     int count = 0;
     while (it->isValid()) {
         const String &entry = it->key();

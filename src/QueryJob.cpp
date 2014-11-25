@@ -140,8 +140,8 @@ bool QueryJob::write(const Location &location, unsigned /* flags */)
     const bool cursorKind = queryFlags() & QueryMessage::CursorKind;
     const bool displayName = queryFlags() & QueryMessage::DisplayName;
     if (containingFunction || cursorKind || displayName) {
-        SymbolMap &symbols = project()->symbols();
-        auto it = symbols.find(location);
+        const std::shared_ptr<SymbolMap> symbols = project()->symbols();
+        auto it = symbols->find(location);
         if (!it->isValid()) {
             error() << "Somehow can't find" << location << "in symbols";
         } else {

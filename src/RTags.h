@@ -72,9 +72,9 @@ typedef Map<Path, Set<String> > FilesMap;
 typedef Hash<Path, String> UnsavedFiles;
 
 namespace RTags {
-void dirtySymbolNames(SymbolNameMap &map, const Set<uint32_t> &dirty);
-void dirtySymbols(SymbolMap &map, const Set<uint32_t> &dirty);
-void dirtyUsr(UsrMap &map, const Set<uint32_t> &dirty);
+void dirtySymbolNames(const std::shared_ptr<SymbolNameMap> &map, const Set<uint32_t> &dirty);
+void dirtySymbols(const std::shared_ptr<SymbolMap> &map, const Set<uint32_t> &dirty);
+void dirtyUsr(const std::shared_ptr<UsrMap> &map, const Set<uint32_t> &dirty);
 
 template <typename Container, typename Value>
 inline bool addTo(Container &container, const Value &value)

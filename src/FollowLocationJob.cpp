@@ -26,7 +26,7 @@ FollowLocationJob::FollowLocationJob(const Location &loc, const std::shared_ptr<
 
 int FollowLocationJob::execute()
 {
-    SymbolMap &map = project()->symbols();
+    const std::shared_ptr<SymbolMap> map = project()->symbols();
     auto it = CursorInfo::findCursorInfo(map, location);
 
     if (!it->isValid()) {
@@ -41,7 +41,7 @@ int FollowLocationJob::execute()
     SymbolMapMemory targets;
     if (cursorInfo->kind == CXCursor_ObjCMessageExpr) {
         for (const auto &loc : cursorInfo->targets) {
-            const auto target = map.value(loc);
+            const auto target = map->value(loc);
             if (target)
                 targets[loc] = target;
 

@@ -48,9 +48,11 @@ public:
     }
 
     template <typename T>
-    static inline bool openDB(T &db, const Path &dbPath, const char *name)
+    static inline bool openDB(std::shared_ptr<T> &db, const Path &dbPath, const char *name)
     {
-        return !db.path().isEmpty() || db.open(dbPath + name, RTags::DatabaseVersion);
+        if (!db)
+            db.reset(new T);
+        return !db->path().isEmpty() || db->open(dbPath + name, RTags::DatabaseVersion);
     }
 
     template <typename T>
@@ -73,7 +75,7 @@ public:
 
         EventLoop::mainEventLoop()->callLater([this, thread, &timer, &mutex, &condition, &finished]() {
                 if (std::shared_ptr<Project> proj = mWeak.lock()) {
-                    const bool restored = thread && thread->mSources.size();
+                    const bool restored = thread && thread->mSources->size();
                     proj->updateContents(thread);
                     if (restored)
                         error() << "Restored project" << mPath << "in" << timer.elapsed() << "ms";
@@ -95,17 +97,17 @@ public:
             return false; // there's really no way to recover from this
 
         std::shared_ptr<DependencyMap::WriteScope> writeScope;
-        for (auto source = mSources.createIterator(); source->isValid(); source->next()) {
-            auto it = mDependencies.find(source->value().fileId);
+        for (auto source = mSources->createIterator(); source->isValid(); source->next()) {
+            auto it = mDependencies->find(source->value().fileId);
             if (!it->isValid()) {
                 if (!writeScope)
-                    writeScope = mDependencies.createWriteScope(8 * 1024);
+                    writeScope = mDependencies->createWriteScope(8 * 1024);
                 Set<uint32_t> deps;
                 deps.insert(source->value().fileId);
-                mDependencies.set(source->value().fileId, deps);
+                mDependencies->set(source->value().fileId, deps);
             } else if (!it->value().contains(source->value().fileId)) {
                 if (!writeScope)
-                    writeScope = mDependencies.createWriteScope(8 * 1024);
+                    writeScope = mDependencies->createWriteScope(8 * 1024);
                 auto deps = it->value();
                 deps.insert(source->value().fileId);
                 it->setValue(deps);
@@ -119,12 +121,12 @@ public:
 
     const Path mPath;
     const Path mDBPath;
-    SymbolMap mSymbols;
-    SymbolNameMap mSymbolNames;
-    UsrMap mUsr;
-    DependencyMap mDependencies;
-    SourceMap mSources;
-    DB<String, String> mGeneral;
+    std::shared_ptr<SymbolMap> mSymbols;
+    std::shared_ptr<SymbolNameMap> mSymbolNames;
+    std::shared_ptr<UsrMap> mUsr;
+    std::shared_ptr<DependencyMap> mDependencies;
+    std::shared_ptr<SourceMap> mSources;
+    std::shared_ptr<DB<String, String> > mGeneral;
     std::weak_ptr<Project> mWeak;
 };
 
@@ -166,11 +168,11 @@ public:
     SimpleDirty()
         : Dirty()
     {}
-    void init(const Set<uint32_t> &dirty, const DependencyMap &dependencies)
+    void init(const Set<uint32_t> &dirty, const std::shared_ptr<DependencyMap> &dependencies)
     {
         for (auto fileId : dirty) {
             mDirty.insert(fileId);
-            mDirty += dependencies.value(fileId);
+            mDirty += dependencies->value(fileId);
         }
     }
 
@@ -229,10 +231,10 @@ public:
 class IfModifiedDirty : public ComplexDirty
 {
 public:
-    IfModifiedDirty(DependencyMap &dependencies, const Match &match = Match())
+    IfModifiedDirty(const std::shared_ptr<DependencyMap> &dependencies, const Match &match = Match())
         : ComplexDirty(), mMatch(match)
     {
-        for (auto it = dependencies.createIterator(); it->isValid(); it->next()) {
+        for (auto it = dependencies->createIterator(); it->isValid(); it->next()) {
             const uint32_t dependee = it->key();
             const Set<uint32_t> &dependents = it->value();
             for (auto dependent : dependents) {
@@ -274,10 +276,10 @@ public:
 class WatcherDirty : public ComplexDirty
 {
 public:
-    WatcherDirty(const DependencyMap &dependencies, const Set<uint32_t> &modified)
+    WatcherDirty(const std::shared_ptr<DependencyMap> &dependencies, const Set<uint32_t> &modified)
     {
         for (auto it : modified) {
-            mModified[it] = dependencies.value(it);
+            mModified[it] = dependencies->value(it);
         }
     }
 
@@ -348,19 +350,19 @@ void Project::updateContents(RestoreThread *thread)
 
     std::unique_ptr<ComplexDirty> dirty;
     if (thread) {
-        mSymbols = std::move(thread->mSymbols);
-        mSymbolNames = std::move(thread->mSymbolNames);
-        mUsr = std::move(thread->mUsr);
-        mDependencies = std::move(thread->mDependencies);
-        mSources = std::move(thread->mSources);
-        mGeneral = std::move(thread->mGeneral);
-        const String visited = mGeneral.value("visitedFiles");
+        mSymbols = thread->mSymbols;
+        mSymbolNames = thread->mSymbolNames;
+        mUsr = thread->mUsr;
+        mDependencies = thread->mDependencies;
+        mSources = thread->mSources;
+        mGeneral = thread->mGeneral;
+        const String visited = mGeneral->value("visitedFiles");
         if (!visited.isEmpty()) {
             Deserializer deserializer(visited);
             deserializer >> mVisitedFiles;
         }
 
-        for (auto dep = mDependencies.createIterator(); dep->isValid(); dep->next()) {
+        for (auto dep = mDependencies->createIterator(); dep->isValid(); dep->next()) {
             watch(Location::path(dep->key()));
         }
 
@@ -372,7 +374,7 @@ void Project::updateContents(RestoreThread *thread)
 
         {
             std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
-            auto it = mDependencies.createIterator();
+            auto it = mDependencies->createIterator();
 
             while (it->isValid()) {
                 const Path path = Location::path(it->key());
@@ -380,7 +382,7 @@ void Project::updateContents(RestoreThread *thread)
                     error() << path << "seems to have disappeared";
                     dirty.get()->insertDirtyFile(it->key());
 
-                    const Set<uint32_t> &dependents = it->second;
+                    const Set<uint32_t> &dependents = it->value();
                     for (auto dependent : dependents) {
                         // we don't have a file to compare with to
                         // know whether the source is parsed after the
@@ -390,28 +392,27 @@ void Project::updateContents(RestoreThread *thread)
                     }
 
                     if (!dependenciesWriteScope)
-                        dependenciesWriteScope = mDependencies.createWriteScope();
+                        dependenciesWriteScope = mDependencies->createWriteScope(1024 * 8);
 
-                    mDependencies.erase(it++);
-                }
-                else {
-                    ++it;
+                    it->erase();
+                } else {
+                    it->next();
                 }
             }
         }
 
         std::shared_ptr<SourceMap::WriteScope> sourcesWriteScope;
-        auto it = mSources.begin();
-        while (it != mSources.end()) {
-            const Source &source = it->second;
+        auto it = mSources->createIterator();
+        while (it->isValid()) {
+            const Source &source = it->value();
             if (!source.sourceFile().isFile()) {
                 error() << source.sourceFile() << "seems to have disappeared";
                 dirty.get()->insertDirtyFile(source.fileId);
-                mSources.erase(it++);
                 if (!sourcesWriteScope)
-                    sourcesWriteScope = mSources.createWriteScope();
+                    sourcesWriteScope = mSources->createWriteScope(1024 * 8);
+                it->erase();
             } else {
-                ++it;
+                it->next();
             }
         }
     }
@@ -475,13 +476,13 @@ void Project::unload()
     mActiveJobs.clear();
     fileManager.reset();
 
-    mSymbols.close();
-    mSymbolNames.close();
-    mDependencies.close();
-    mUsr.close();
-    mSources.close();
+    mSymbols->close();
+    mSymbolNames->close();
+    mDependencies->close();
+    mUsr->close();
+    mSources->close();
 
-    mFiles.clear();
+    mFiles->clear();
     mVisitedFiles.clear();
     mState = Unloaded;
     mSyncTimer.stop();
@@ -502,7 +503,7 @@ bool Project::match(const Match &p, bool *indexed) const
             if (indexed)
                 *indexed = true;
             return true;
-        } else if (mFiles.contains(path) || p.match(mPath) || p.match(resolvedPath)) {
+        } else if (mFiles->contains(path) || p.match(mPath) || p.match(resolvedPath)) {
             if (!indexed)
                 return true;
             ret = true;
@@ -543,8 +544,8 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
         releaseFileIds(job->visited);
     }
 
-    auto src = mSources.find(indexData->key);
-    if (src == mSources.end()) {
+    auto src = mSources->find(indexData->key);
+    if (!src->isValid()) {
         error() << "Can't find source for" << Location::path(fileId);
         return;
     }
@@ -561,10 +562,10 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
 
     mIndexData[indexData->key] = indexData;
     if (success) {
-        auto sourcesWriteScope = mSources.createWriteScope();
-        Source s = src->second;
+        auto sourcesWriteScope = mSources->createWriteScope(1024 * 8);
+        Source s = src->value();
         s.parsed = indexData->parseTime;
-        src.setValue(s);
+        src->setValue(s);
         error("[%3d%%] %d/%d %s %s.",
               static_cast<int>(round((double(idx) / double(mJobCounter)) * 100.0)), idx, mJobCounter,
               String::formatTime(time(0), String::Time).constData(),
@@ -594,32 +595,34 @@ bool Project::save()
     Serializer serialize(visited);
     serialize << mVisitedFiles;
 
-    auto writeScope = mGeneral.createWriteScope();
-    mGeneral.set("visitedFiles", visited);
+    auto writeScope = mGeneral->createWriteScope(1024 * 256);
+    mGeneral->set("visitedFiles", visited);
 
     return writeScope->flush();
 }
 
-static inline void markActive(SourceMap::iterator start, uint32_t buildId, const SourceMap::iterator end)
+static inline void markActive(const std::unique_ptr<SourceMap::Iterator> &start, uint32_t buildId)
 {
-    const uint32_t fileId = start->second.fileId;
-    while (start != end) {
+    const uint32_t fileId = start->value().fileId;
+    while (start->isValid()) {
         uint32_t f, b;
-        Source::decodeKey(start->first, f, b);
+        Source::decodeKey(start->key(), f, b);
         if (f != fileId)
             break;
 
-        Source source = start->second;
+        Source source = start->value();
+        unsigned int flags = source.flags;
         if (b == buildId) {
-            source.flags |= Source::Active;
+            flags |= Source::Active;
         } else {
-            source.flags &= ~Source::Active;
+            flags &= ~Source::Active;
         }
-        start.setValue(source);
-        ++start;
+        if (source.flags != flags) {
+            start->setValue(source);
+        }
+        start->next();
     }
 }
-
 
 void Project::index(const std::shared_ptr<IndexerJob> &job)
 {
@@ -636,7 +639,7 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         return;
     }
     const uint64_t key = job->source.key();
-    if (Server::instance()->suspended() && mSources.contains(key) && (job->flags & IndexerJob::Compile)) {
+    if (Server::instance()->suspended() && mSources->contains(key) && (job->flags & IndexerJob::Compile)) {
         return;
     }
 
@@ -645,12 +648,12 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         return;
     }
 
-    auto writeScope = mSources.createWriteScope();
+    auto writeScope = mSources->createWriteScope(1024 * 8);
     if (job->flags & IndexerJob::Compile) {
         const auto &options = Server::instance()->options();
         if (options.options & Server::NoFileSystemWatch) {
-            auto it = mSources.lower_bound(Source::key(job->source.fileId, 0));
-            if (it != mSources.end()) {
+            auto it = mSources->lower_bound(Source::key(job->source.fileId, 0));
+            if (it->isValid()) {
                 uint32_t f, b;
                 Source::decodeKey(it->key(), f, b);
                 if (f == job->source.fileId) {
@@ -661,39 +664,39 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
                 }
             }
         } else {
-            auto cur = mSources.find(key);
-            if (cur != mSources.end()) {
-                if (!(cur->second.flags & Source::Active))
-                    markActive(mSources.lower_bound(Source::key(job->source.fileId, 0)), cur->second.buildRootId, mSources.end());
-                if (cur->second.compareArguments(job->source)) {
+            auto cur = mSources->find(key);
+            if (cur->isValid()) {
+                if (!(cur->value().flags & Source::Active))
+                    markActive(mSources->lower_bound(Source::key(job->source.fileId, 0)), cur->value().buildRootId);
+                if (cur->value().compareArguments(job->source)) {
                     // no updates
                     return;
                 }
             } else {
-                auto it = mSources.lower_bound(Source::key(job->source.fileId, 0));
-                const auto start = it;
+                auto it = mSources->lower_bound(Source::key(job->source.fileId, 0));
+                const auto start = mSources->find(it->key()); // there's no way to duplicate an iterator in RocksDB
                 const bool disallowMultiple = options.options & Server::DisallowMultipleSources;
                 bool unsetActive = false;
-                while (it != mSources.end()) {
+                while (it->isValid()) {
                     uint32_t f, b;
                     Source::decodeKey(it->key(), f, b);
                     if (f != job->source.fileId)
                         break;
 
-                    if (it->second.compareArguments(job->source)) {
-                        markActive(start, b, mSources.end());
+                    if (it->value().compareArguments(job->source)) {
+                        markActive(start, b);
                         // no updates
                         return;
                     } else if (disallowMultiple) {
-                        mSources.erase(it++);
+                        it->erase();
                         continue;
                     }
                     unsetActive = true;
-                    ++it;
+                    it->next();
                 }
                 if (unsetActive) {
                     assert(!disallowMultiple);
-                    markActive(start, 0, mSources.end());
+                    markActive(start, 0);
                 }
             }
         }
@@ -701,11 +704,11 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
 
     Source source = job->source;
     source.flags |= Source::Active;
-    mSources.set(key, source);
+    mSources->set(key, source);
 
     String err;
     if (!writeScope->flush(&err)) {
-        error() << "Failed to write to sources" << mSources.size() << err;
+        error() << "Failed to write to sources" << mSources->size() << err;
     }
 
     std::shared_ptr<IndexerJob> &ref = mActiveJobs[key];
@@ -752,14 +755,14 @@ List<Source> Project::sources(uint32_t fileId) const
 {
     List<Source> ret;
     if (fileId) {
-        auto it = mSources.lower_bound(Source::key(fileId, 0));
-        while (it != mSources.end()) {
+        auto it = mSources->lower_bound(Source::key(fileId, 0));
+        while (it->isValid()) {
             uint32_t f, b;
             Source::decodeKey(it->key(), f, b);
             if (f != fileId)
                 break;
-            ret.append(it->second);
-            ++it;
+            ret.append(it->value());
+            it->next();
         }
     }
     return ret;
@@ -775,13 +778,11 @@ static inline int uniteSet(const Set<T> &original, const Set<T> &newValues, Set<
     }
 
     int ret = 0;
-    bool united = false;
     for (const T &t : newValues) {
-        if (united) {
+        if (ret) {
             if (result.insert(t))
                 ++ret;
         } else if (!original.contains(t)) {
-            united = true;
             result = original;
             result.insert(t);
             assert(!ret);
@@ -797,13 +798,13 @@ void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &ne
 
     const auto end = deps.end();
     for (auto it = deps.begin(); it != end; ++it) {
-        auto cur = mDependencies.find(it->key());
-        if (cur == mDependencies.end()) {
-            mDependencies.set(it->key(), it->second);
+        auto cur = mDependencies->find(it->first);
+        if (!cur->isValid()) {
+            mDependencies->set(it->first, it->second);
         } else {
             Set<uint32_t> merged;
-            if (uniteSet(cur->second, it->second, merged)) {
-                cur.setValue(merged);
+            if (uniteSet(cur->value(), it->second, merged)) {
+                cur->setValue(merged);
             }
         }
         if (newFiles.isEmpty()) {
@@ -811,19 +812,18 @@ void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &ne
         } else {
             newFiles.unite(it->second);
         }
-        newFiles.insert(it->key());
+        newFiles.insert(it->first);
     }
 }
 
 Set<uint32_t> Project::dependencies(uint32_t fileId, DependencyMode mode) const
 {
     if (mode == DependsOnArg)
-        return mDependencies.value(fileId);
+        return mDependencies->value(fileId);
 
     Set<uint32_t> ret;
-    const auto end = mDependencies.end();
-    for (auto it = mDependencies.begin(); it != end; ++it) {
-        if (it->second.contains(fileId))
+    for (auto it = mDependencies->createIterator(); it->isValid(); it->next()) {
+        if (it->value().contains(fileId))
             ret.insert(it->key());
     }
     return ret;
@@ -834,10 +834,9 @@ int Project::reindex(const Match &match, const std::shared_ptr<QueryMessage> &qu
     if (query->type() == QueryMessage::Reindex) {
         Set<uint32_t> dirtyFiles;
 
-        const auto end = mDependencies.constEnd();
-        for (auto it = mDependencies.constBegin(); it != end; ++it) {
-            if (!dirtyFiles.contains(it->key()) && (match.isEmpty() || match.match(Location::path(it->first)))) {
-                dirtyFiles.insert(it->first);
+        for (auto it = mDependencies->createIterator(); it->isValid(); it->next()) {
+            if (!dirtyFiles.contains(it->key()) && (match.isEmpty() || match.match(Location::path(it->key())))) {
+                dirtyFiles.insert(it->key());
             }
         }
         if (dirtyFiles.isEmpty())
@@ -856,11 +855,11 @@ int Project::remove(const Match &match)
 {
     int count = 0;
     Set<uint32_t> dirty;
-    auto it = mSources.begin();
-    while (it != mSources.end()) {
-        if (match.match(it->second.sourceFile())) {
-            const uint32_t fileId = it->second.fileId;
-            mSources.erase(it++);
+    auto it = mSources->createIterator();
+    while (it->isValid()) {
+        if (match.match(it->value().sourceFile())) {
+            const uint32_t fileId = it->value().fileId;
+            it->erase();
             std::shared_ptr<IndexerJob> job = mActiveJobs.take(fileId);
             if (job) {
                 releaseFileIds(job->visited);
@@ -870,7 +869,7 @@ int Project::remove(const Match &match)
             dirty.insert(fileId);
             ++count;
         } else {
-            ++it;
+            it->next();
         }
     }
     if (count) {
@@ -884,9 +883,9 @@ int Project::remove(const Match &match)
 int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
 {
     List<Source> toIndex;
-    for (const auto &source : mSources) {
-        if (source.second.flags & Source::Active && dirty->isDirty(source.second)) {
-            toIndex << source.second;
+    for (auto source = mSources->createIterator(); source->isValid(); source->next()) {
+        if (source->value().flags & Source::Active && dirty->isDirty(source->value())) {
+            toIndex << source->value();
         }
     }
     const Set<uint32_t> dirtyFiles = dirty->dirtied();
@@ -910,21 +909,21 @@ int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
     return toIndex.size();
 }
 
-static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, SymbolNameMap &current)
+static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, const std::shared_ptr<SymbolNameMap> &current)
 {
     int ret = 0;
     auto it = symbolNames.begin();
     const auto end = symbolNames.end();
     while (it != end) {
-        auto cur = current.find(it->first);
-        if (cur == current.end()) {
-            current.set(it->first, it->second);
+        auto cur = current->find(it->first);
+        if (!cur->isValid()) {
+            current->set(it->first, it->second);
         } else {
             Set<Location> merged;
-            const int count = uniteSet(cur->second, it->second, merged);
+            const int count = uniteSet(cur->value(), it->second, merged);
             if (count) {
                 ret += count;
-                cur.setValue(merged);
+                cur->setValue(merged);
             }
         }
         ++it;
@@ -932,12 +931,12 @@ static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, Symbo
     return ret;
 }
 
-static inline void joinCursors(SymbolMap &symbols, const Set<Location> &locations)
+static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const Set<Location> &locations)
 {
     for (auto it = locations.begin(); it != locations.end(); ++it) {
-        auto c = symbols.find(*it);
-        if (c != symbols.end()) {
-            std::shared_ptr<CursorInfo> cursorInfo = c->second;
+        auto c = symbols->find(*it);
+        if (!c->isValid()) {
+            std::shared_ptr<CursorInfo> cursorInfo = c->value();
             bool changed = false;
             assert(cursorInfo);
             for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
@@ -946,23 +945,23 @@ static inline void joinCursors(SymbolMap &symbols, const Set<Location> &location
                 }
             }
             if (changed) {
-                c.setValue(cursorInfo);
+                c->setValue(cursorInfo);
             }
             // ### this is filthy, we could likely think of something better
         }
     }
 }
 
-static inline void writeUsr(const Hash<String, Set<Location> > &usr, UsrMap &current, SymbolMap &symbols)
+static inline void writeUsr(const Hash<String, Set<Location> > &usr, const std::shared_ptr<UsrMap> &current, const std::shared_ptr<SymbolMap> &symbols)
 {
     for (const auto &it : usr) {
-        auto cur = current.find(it.first);
-        if (cur == current.end()) {
-            current.set(it.first, it.second);
+        auto cur = current->find(it.first);
+        if (!cur->isValid()) {
+            current->set(it.first, it.second);
         } else {
             Set<Location> merged;
-            if (uniteSet(cur->second, it.second, merged)) {
-                cur.setValue(merged);
+            if (uniteSet(cur->value(), it.second, merged)) {
+                cur->setValue(merged);
                 if (merged.size() > 1)
                     joinCursors(symbols, merged);
             }
@@ -970,7 +969,7 @@ static inline void writeUsr(const Hash<String, Set<Location> > &usr, UsrMap &cur
     }
 }
 
-static inline void resolvePendingReferences(SymbolMap &symbols, const UsrMap &usrs, const Hash<String, Set<Location> > &refs)
+static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &symbols, const std::shared_ptr<UsrMap> &usrs, const Hash<String, Set<Location> > &refs)
 {
     for (const auto &ref : refs) {
         assert(!ref.second.isEmpty());
@@ -988,10 +987,10 @@ static inline void resolvePendingReferences(SymbolMap &symbols, const UsrMap &us
         }
         SymbolMapMemory targets;
         for (const String &refUsr : refUsrs) {
-            const auto usr = usrs.find(refUsr);
-            if (usr != usrs.end()) {
-                for (const Location &usrLoc : usr->second) {
-                    auto symbol = symbols.value(usrLoc);
+            const auto usr = usrs->find(refUsr);
+            if (usr->isValid()) {
+                for (const Location &usrLoc : usr->value()) {
+                    auto symbol = symbols->value(usrLoc);
                     assert(symbol);
                     if (RTags::isCursor(symbol->kind))
                         targets[usrLoc] = symbol;
@@ -1000,7 +999,7 @@ static inline void resolvePendingReferences(SymbolMap &symbols, const UsrMap &us
         }
         if (!targets.isEmpty()) {
             for (const auto &r : ref.second) {
-                auto &referenceCursor = symbols[r];
+                auto &referenceCursor = (*symbols)[r];
                 assert(referenceCursor);
                 for (const auto &t : targets) {
                     referenceCursor->targets.insert(t.first);
@@ -1011,24 +1010,24 @@ static inline void resolvePendingReferences(SymbolMap &symbols, const UsrMap &us
     }
 }
 
-static inline int writeSymbols(const SymbolMapMemory &symbols, SymbolMap &current)
+static inline int writeSymbols(const SymbolMapMemory &symbols, const std::shared_ptr<SymbolMap> &current)
 {
     int ret = 0;
-    const bool wasEmpty = current.isEmpty();
+    const bool wasEmpty = current->isEmpty();
     auto it = symbols.begin();
     const auto end = symbols.end();
     while (it != end) {
         if (wasEmpty) {
-            current.set(it->first, it->second);
+            current->set(it->first, it->second);
             ++ret;
         } else {
-            auto cur = current.find(it->first);
-            if (cur == current.end()) {
-                current.set(it->first, it->second);
+            auto cur = current->find(it->first);
+            if (!cur->isValid()) {
+                current->set(it->first, it->second);
                 ++ret;
             } else {
-                if (cur->second->unite(it->second)) {
-                    current.set(it->first, cur->second);
+                if (cur->value()->unite(it->second)) {
+                    cur->setValue(cur->value());
                     // hm...
                     ++ret;
                 }
@@ -1045,10 +1044,10 @@ bool Project::isIndexed(uint32_t fileId) const
         return true;
 
     const uint64_t key = Source::key(fileId, 0);
-    auto it = mSources.lower_bound(key);
-    if (it != mSources.end()) {
+    auto it = mSources->lower_bound(key);
+    if (it->isValid()) {
         uint32_t f, b;
-        Source::decodeKey(it->first, f, b);
+        Source::decodeKey(it->key(), f, b);
         if (f == fileId)
             return true;
     }
@@ -1140,22 +1139,27 @@ void Project::reloadFileManager()
     fileManager->reload(FileManager::Asynchronous);
 }
 
-static inline bool checkFunction(unsigned int kind)
+enum MatchSymbolNameMode {
+    MaybeFunction,
+    NonFunction
+};
+
+static inline MatchSymbolNameMode checkFunction(unsigned int kind)
 {
     switch (kind) {
     case CXCursor_VarDecl:
     case CXCursor_ParmDecl:
-        return true;
+        return MaybeFunction;
     default:
         break;
     }
-    return false;
+    return NonFunction;
 }
 
-static inline bool matchSymbolName(const String &needle, const String &haystack, bool checkFunction)
+static inline bool matchSymbolName(const String &needle, const String &haystack, MatchSymbolNameMode checkFunction)
 {
     int start = 0;
-    if (checkFunction) {
+    if (checkFunction == MaybeFunction) {
         // we generate symbols for arguments and local variables in functions
         // . E.g. there's a symbol with the symbolName:
         // bool matchSymbolName(String &, String &, bool)::checkFunction
@@ -1193,16 +1197,16 @@ Set<Location> Project::locations(const String &symbolName, uint32_t fileId) cons
             }
         }
     } else if (symbolName.isEmpty()) {
-        for (auto it = mSymbols.constBegin(); it != mSymbols.constEnd(); ++it) {
-            if (!RTags::isReference(it->second->kind))
-                ret.insert(it->first);
+        for (auto it = mSymbols->createIterator(); it->isValid(); it->next()) {
+            if (!RTags::isReference(it->value()->kind))
+                ret.insert(it->key());
         }
     } else {
-        auto it = mSymbolNames.lower_bound(symbolName);
-        while (it != mSymbolNames.end() && it->first.startsWith(symbolName)) {
-            if (matchSymbolName(symbolName, it->first, true)) // assume function
-                ret.unite(it->second);
-            ++it;
+        auto it = mSymbolNames->lower_bound(symbolName);
+        while (it->isValid() && it->key().startsWith(symbolName)) {
+            if (matchSymbolName(symbolName, it->key(), MaybeFunction)) // assume function
+                ret.unite(it->value());
+            it->next();
         }
     }
     return ret;
@@ -1214,15 +1218,15 @@ List<RTags::SortedCursor> Project::sort(const Set<Location> &locations, unsigned
     sorted.reserve(locations.size());
     for (auto it = locations.begin(); it != locations.end(); ++it) {
         RTags::SortedCursor node(*it);
-        const auto found = mSymbols.find(*it);
-        if (found != mSymbols.end()) {
-            node.isDefinition = found->second->isDefinition();
+        const auto found = mSymbols->find(*it);
+        if (found->isValid()) {
+            node.isDefinition = found->value()->isDefinition();
             if (flags & Sort_DeclarationOnly && node.isDefinition) {
-                const std::shared_ptr<CursorInfo> decl = found->second->bestTarget(mSymbols);
+                const std::shared_ptr<CursorInfo> decl = found->value()->bestTarget(mSymbols);
                 if (decl && !decl->isNull())
                     continue;
             }
-            node.kind = found->second->kind;
+            node.kind = found->value()->kind;
         }
         sorted.push_back(node);
     }
@@ -1239,9 +1243,9 @@ SymbolMapMemory Project::symbols(uint32_t fileId) const
 {
     SymbolMapMemory ret;
     if (fileId) {
-        for (auto it = mSymbols.lower_bound(Location(fileId, 1, 0));
-             it != mSymbols.end() && it->first.fileId() == fileId; ++it) {
-            ret[it->first] = it->second;
+        for (auto it = mSymbols->lower_bound(Location(fileId, 1, 0));
+             it->isValid() && it->key().fileId() == fileId; it->next()) {
+            ret[it->key()] = it->value();
         }
     }
     return ret;
@@ -1285,10 +1289,10 @@ String Project::sync()
         return String();
     }
 
-    auto symbolNameWriteScope = mSymbolNames.createWriteScope();
-    auto symbolsWriteScope = mSymbols.createWriteScope();
-    auto usrScope = mUsr.createWriteScope();
-    auto dependenciesScope = mDependencies.createWriteScope();
+    auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 256 * mIndexData.size());
+    auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512 * mIndexData.size());
+    auto usrScope = mUsr->createWriteScope(1024 * 32 * mIndexData.size());
+    auto dependenciesScope = mDependencies->createWriteScope(1024 * 32 * mIndexData.size());
     if (!mDirtyFiles.isEmpty()) {
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
         RTags::dirtySymbolNames(mSymbolNames, mDirtyFiles);
@@ -1319,7 +1323,7 @@ String Project::sync()
         watch(Location::path(*it));
     }
     if (!symbolNameWriteScope->flush()) {
-        error() << "Failed to write symbol names" << mSymbolNames.path();
+        error() << "Failed to write symbol names" << mSymbolNames->path();
     }
     const int syncTime = sw.restart();
     save();
@@ -1335,4 +1339,4 @@ String Project::sync()
     mIndexData.clear();
     mTimer.start();
     return msg;
-}
+};

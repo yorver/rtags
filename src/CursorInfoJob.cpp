@@ -27,8 +27,8 @@ CursorInfoJob::CursorInfoJob(const Location &loc, const std::shared_ptr<QueryMes
 
 int CursorInfoJob::execute()
 {
-    SymbolMap &map = project()->symbols();
-    if (map.isEmpty())
+    std::shared_ptr<SymbolMap> map = project()->symbols();
+    if (map->isEmpty())
         return 1;
     auto it = CursorInfo::findCursorInfo(map, location);
 

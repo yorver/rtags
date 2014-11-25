@@ -470,7 +470,7 @@ int RClient::exec()
     }
     int ret = 0;
     for (int i=0; i<commandCount; ++i) {
-        const std::shared_ptr<RCCommand> &cmd = mCommands.at(i);
+        const std::shared_ptr<RCCommand> cmd = mCommands.at(i);
         debug() << "running command " << cmd->description();
         if (!cmd->exec(this, &connection) || loop->exec(timeout()) != EventLoop::Success) {
             ret = 1;
