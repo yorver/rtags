@@ -47,10 +47,8 @@ endif ()
 
 set(RCT_STATIC 1)
 set(RCT_NO_INSTALL 1)
-set(RCT_DB_USE_MAP 1)
-add_definitions(-DRCT_DB_USE_MAP)
 
-add_subdirectory(rct)
+include(rct/rct.cmake)
 
 include(${CMAKE_CURRENT_LIST_DIR}/rct/compiler.cmake)
 # set(RCT_INCLUDE_DIR rct)
@@ -64,14 +62,16 @@ endif ()
 add_definitions("-Wall")
 add_definitions("-DCLANG_INCLUDEPATH=${CLANG_SYSTEM_INCLUDE}")
 add_definitions("-DOS_${CMAKE_SYSTEM_NAME}")
+add_definitions(${RCT_DEFINITIONS})
 
+set(LIBS ${RCT_LIBRARIES})
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-  set(SYSTEM_LIBS pthread rt crypto m dl curses)
+  set(LIBS ${LIBS} m dl curses)
 elseif (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   add_definitions(-D__LONG_LONG_SUPPORTED)
-  set(SYSTEM_LIBS pthread crypto curses)
+  set(LIBS ${LIBS} curses)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
-  set(SYSTEM_LIBS crypto curses)
+  set(LIBS ${LIBS} curses)
   find_program(SW_VER sw_vers)
   execute_process(COMMAND "${SW_VER}" -productVersion OUTPUT_VARIABLE osver)
   string(REPLACE "\n" "" osver "${osver}")
@@ -148,7 +148,7 @@ endif ()
 
 add_executable(rc rc.cpp RClient.cpp foobar.cpp)
 add_dependencies(rc rct shared)
-target_link_libraries(rc shared rct ${SYSTEM_LIBS})
+target_link_libraries(rc shared rct ${LIBS})
 
 add_library(rtags STATIC ${RTAGS_SOURCES})
 target_link_libraries(rtags
@@ -156,14 +156,13 @@ target_link_libraries(rtags
   shared
   ${START_GROUP}
   ${CLANG_LIBS}
-  # ${LLVM_LIBNAMES}
   ${END_GROUP}
   -lstdc++
-  ${SYSTEM_LIBS})
+  ${LIBS})
 add_dependencies(rtags rct)
 
 add_executable(rdm rdm.cpp)
-target_link_libraries(rdm rtags -lstdc++ ${SYSTEM_LIBS})
+target_link_libraries(rdm rtags -lstdc++ ${LIBS})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 set(RP_LIBRARIES rtags shared)
