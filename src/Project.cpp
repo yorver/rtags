@@ -52,12 +52,17 @@ public:
     {
         if (!db)
             db.reset(new T);
-        return !db->path().isEmpty() || db->open(dbPath + name, RTags::DatabaseVersion);
+        if (db->path().isEmpty()) {
+            error() << "Opening" << (dbPath + name);
+            return db->open(dbPath + name, RTags::DatabaseVersion);
+        }
+        return true;
     }
 
     template <typename T>
     static inline bool openDBs(T *t)
     {
+        Path::mkdir(t->mDBPath, Path::Recursive);
         return (openDB(t->mSymbols, t->mDBPath, "symbols")
                 && openDB(t->mSymbolNames, t->mDBPath, "symbolnames")
                 && openDB(t->mUsr, t->mDBPath, "usr")
@@ -440,9 +445,6 @@ bool Project::load(FileManagerMode mode)
         return false;
     }
     mState = Loading;
-#ifdef RCT_DB_USE_ROCKSDB
-#warning foo
-#endif
 #ifdef RCT_DB_USE_MAP
 #warning bar
     RestoreThread *thread = new RestoreThread(shared_from_this());
@@ -648,11 +650,6 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
         return;
     }
 
-    if (!RestoreThread::openDBs(this)) {
-        error() << "Failed to open databases";
-        return;
-    }
-
     auto writeScope = mSources->createWriteScope(1024 * 8);
     if (job->flags & IndexerJob::Compile) {
         const auto &options = Server::instance()->options();
@@ -679,29 +676,31 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
                 }
             } else {
                 auto it = mSources->lower_bound(Source::key(job->source.fileId, 0));
-                const auto start = mSources->find(it->key()); // there's no way to duplicate an iterator in RocksDB
-                const bool disallowMultiple = options.options & Server::DisallowMultipleSources;
-                bool unsetActive = false;
-                while (it->isValid()) {
-                    uint32_t f, b;
-                    Source::decodeKey(it->key(), f, b);
-                    if (f != job->source.fileId)
-                        break;
+                if (it->isValid()) {
+                    const auto start = mSources->find(it->key()); // there's no way to duplicate an iterator in RocksDB
+                    const bool disallowMultiple = options.options & Server::DisallowMultipleSources;
+                    bool unsetActive = false;
+                    while (it->isValid()) {
+                        uint32_t f, b;
+                        Source::decodeKey(it->key(), f, b);
+                        if (f != job->source.fileId)
+                            break;
 
-                    if (it->value().compareArguments(job->source)) {
-                        markActive(start, b);
-                        // no updates
-                        return;
-                    } else if (disallowMultiple) {
-                        it->erase();
-                        continue;
+                        if (it->value().compareArguments(job->source)) {
+                            markActive(start, b);
+                            // no updates
+                            return;
+                        } else if (disallowMultiple) {
+                            it->erase();
+                            continue;
+                        }
+                        unsetActive = true;
+                        it->next();
                     }
-                    unsetActive = true;
-                    it->next();
-                }
-                if (unsetActive) {
-                    assert(!disallowMultiple);
-                    markActive(start, 0);
+                    if (unsetActive) {
+                        assert(!disallowMultiple);
+                        markActive(start, 0);
+                    }
                 }
             }
         }
@@ -1048,13 +1047,15 @@ bool Project::isIndexed(uint32_t fileId) const
     if (mVisitedFiles.contains(fileId))
         return true;
 
-    const uint64_t key = Source::key(fileId, 0);
-    auto it = mSources->lower_bound(key);
-    if (it->isValid()) {
-        uint32_t f, b;
-        Source::decodeKey(it->key(), f, b);
-        if (f == fileId)
-            return true;
+    if (mSources) {
+        const uint64_t key = Source::key(fileId, 0);
+        auto it = mSources->lower_bound(key);
+        if (it->isValid()) {
+            uint32_t f, b;
+            Source::decodeKey(it->key(), f, b);
+            if (f == fileId)
+                return true;
+        }
     }
     return false;
 }
