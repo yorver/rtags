@@ -54,7 +54,7 @@ public:
             db.reset(new T);
         if (db->path().isEmpty()) {
             error() << "Opening" << (dbPath + name);
-            return db->open(dbPath + name, RTags::DatabaseVersion);
+            return db->open(dbPath + name);
         }
         return true;
     }
@@ -939,7 +939,7 @@ static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const 
 {
     for (auto it = locations.begin(); it != locations.end(); ++it) {
         auto c = symbols->find(*it);
-        if (!c->isValid()) {
+        if (c->isValid()) {
             std::shared_ptr<CursorInfo> cursorInfo = c->value();
             bool changed = false;
             assert(cursorInfo);

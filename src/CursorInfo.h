@@ -109,24 +109,26 @@ public:
     static std::unique_ptr<SymbolMap::Iterator> findCursorInfo(const std::shared_ptr<SymbolMap> &map, const Location &location)
     {
         std::unique_ptr<DB<Location, std::shared_ptr<CursorInfo> >::Iterator> it = map->lower_bound(location);
-        if (it->key() == location) {
-            return it;
-        }
-
         if (it->isValid()) {
+            if (it->key() == location) {
+                return it;
+            }
             it->prev();
-            if (!it->isValid())
-                it->seekToFront();
         } else {
             it->seekToEnd();
         }
 
+        if (!it->isValid()) {
+            return it;
+        }
+
         if (it->key().fileId() == location.fileId() && location.line() == it->key().line()) {
             const int off = location.column() - it->key().column();
-            if (it->value()->symbolLength > off)
+            if (it->value()->symbolLength > off) {
                 return it;
+            }
         }
-        return std::unique_ptr<SymbolMap::Iterator>();
+        return map->createIterator(map->Invalid);
     }
 
     std::shared_ptr<CursorInfo> copy() const;

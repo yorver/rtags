@@ -13,6 +13,7 @@
    You should have received a copy of the GNU General Public License
    along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
+// #define private public
 #include <rct/EventLoop.h>
 #include <rct/Log.h>
 #include "RTags.h"
@@ -120,8 +121,79 @@ static void usage(FILE *f)
             , std::max(2, ThreadPool::idealThreadCount()), defaultStackSize);
 }
 
+#if 0
+class Handler : public rocksdb::WriteBatch::Handler
+{
+public:
+    virtual rocksdb::Status PutCF(uint32_t column_family_id, const rocksdb::Slice& key, const rocksdb::Slice& value) {
+        printf("PUTCF %d %s %s\n", column_family_id, std::string(key.data(), key.size()).c_str(),
+               std::string(value.data(), value.size()).c_str());
+        return rocksdb::Status::OK();
+    }
+    virtual void Put(const rocksdb::Slice& key, const rocksdb::Slice& value)
+    {
+        printf("PUT %s %s\n", std::string(key.data(), key.size()).c_str(),
+               std::string(value.data(), value.size()).c_str());
+
+    }
+    virtual rocksdb::Status MergeCF(uint32_t column_family_id, const rocksdb::Slice& key, const rocksdb::Slice& value) {
+        printf("MERGECF %d %s %s\n", column_family_id, std::string(key.data(), key.size()).c_str(),
+               std::string(value.data(), value.size()).c_str());
+return rocksdb::Status::OK();
+    }
+    virtual void Merge(const rocksdb::Slice& key, const rocksdb::Slice& value)
+    {
+        printf("MERGE %s %s\n", std::string(key.data(), key.size()).c_str(),
+               std::string(value.data(), value.size()).c_str());
+    }
+    // The default implementation of LogData does nothing.
+    virtual rocksdb::Status DeleteCF(uint32_t column_family_id, const rocksdb::Slice& key) {
+        printf("DELETECF %d %s %s\n", column_family_id, std::string(key.data(), key.size()).c_str());
+    }
+    virtual void Delete(const rocksdb::Slice& key)
+    {
+        printf("DELETE %s %s\n", std::string(key.data(), key.size()).c_str());
+    }
+    // Continue is called by WriteBatch::Iterate. If it returns false,
+    // iteration is halted. Otherwise, it continues iterating. The default
+    // implementation always returns true.
+    virtual bool Continue()
+    {
+        return true;
+    }
+};
+#endif
+
 int main(int argc, char** argv)
 {
+#if 0
+    DB<String, String> db;
+
+    db.open("/tmp/fisk2", db.Overwrite);
+    {
+        auto batch = db.createWriteScope(1000);
+        // db.set(Location(1, 2, 3), 1);
+        // db.set(Location(1, 2, 1), 2);
+        db.set("Fisk", "fugl");
+        auto foo = db.find("Fisk");
+        error() << foo->isValid();
+        Handler handler;
+        batch->mDB->mWriteBatch->Iterate(&handler);
+        // for (int i=0; i<10; ++i) {
+        //     Location::set(String::format("[[[FILE %d]]]", i), i);
+        //     for (int j=0; j<10; ++j) {
+        //         db.set(Location(i, 5, j), i);
+        //     }
+        // }
+    }
+
+    for (auto i = db.createIterator(); i->isValid(); i->next()) {
+        error() << i->key();
+    }
+
+    return 0;
+#endif
+
     {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
@@ -301,9 +373,9 @@ int main(int argc, char** argv)
 #ifdef OS_Darwin
     serverOpts.options |= Server::NoFileManagerWatch;
 #endif
-// #ifndef NDEBUG
-//     serverOpts.options |= Server::SuspendRPOnCrash;
-// #endif
+    // #ifndef NDEBUG
+    //     serverOpts.options |= Server::SuspendRPOnCrash;
+    // #endif
     serverOpts.excludeFilters = String(EXCLUDEFILTER_DEFAULT).split(';');
     serverOpts.dataDir = String::format<128>("%s.rtags", Path::home().constData());
     serverOpts.unloadTimer = 0;

@@ -219,9 +219,10 @@ bool Server::init(const Options &options)
 
     mUnixServer->newConnection().connect(std::bind(&Server::onNewConnection, this, std::placeholders::_1));
     String err;
-    if (!mDB.open(mOptions.dataDir + "db", RTags::DatabaseVersion)) {
+    if (!mDB.open(mOptions.dataDir + "db")) {
         return false;
     } else {
+        #warning should put version here
         const String data = mDB.value("fileIds");
         if (!data.isEmpty()) {
             Deserializer deserializer(data);
@@ -278,7 +279,7 @@ int Server::reloadProjects()
         if (p.isDir()) {
             SourceMap sources;
             String err;
-            if (sources.open(path + "sources", RTags::DatabaseVersion) && sources.size()) {
+            if (sources.open(path + "sources") && sources.size()) {
                 addProject(p);
             } else {
                 error() << "Can't restore project:" << p << err << "Removing" << path;
@@ -1017,12 +1018,12 @@ void Server::preprocessFile(const std::shared_ptr<QueryMessage> &query, Connecti
 
 void Server::clearProjects()
 {
-    for (const auto &it : mProjects)
-        it.second->unload();
-    Rct::removeDirectory(mOptions.dataDir);
     Path::mkdir(mOptions.dataDir);
     setCurrentProject(std::shared_ptr<Project>());
     mProjects.clear();
+    Rct::removeDirectory(mOptions.dataDir);
+    mDB.close();
+    mDB.open(mOptions.dataDir + "db", mDB.Overwrite);
 }
 
 void Server::reindex(const std::shared_ptr<QueryMessage> &query, Connection *conn)
