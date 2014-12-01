@@ -1016,7 +1016,7 @@ void Server::clearProjects()
     setCurrentProject(std::shared_ptr<Project>());
     mProjects.clear();
     mOptions.dataDir.visit([](const Path &path, void *userData) {
-            if (path.isDir()) {
+            if (!path.isDir()) {
                 Path::rm(path);
             } else if (strcmp(path.fileName(), "db")) {
                 Rct::removeDirectory(path);
