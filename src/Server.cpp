@@ -218,23 +218,15 @@ bool Server::init(const Options &options)
     mJobScheduler.reset(new JobScheduler(mOptions.jobCount));
 
     mUnixServer->newConnection().connect(std::bind(&Server::onNewConnection, this, std::placeholders::_1));
-    String err;
-    if (!mDB.open(mOptions.dataDir + "db")) {
+    const int ret = loadFileIds();
+    switch (ret) {
+    case -1:
         return false;
-    } else {
-        #warning should put version here
-        const String data = mDB.value("fileIds");
-        if (!data.isEmpty()) {
-            Deserializer deserializer(data);
-            Hash<Path, uint32_t> pathsToIds;
-            deserializer >> pathsToIds;
-            Location::init(pathsToIds);
-        }
-    }
-    if (!Location::count()) {
+    case 0:
         // we didn't load any file ids so all data is void
         clearProjects();
-    } else {
+        break;
+    default:
         reloadProjects();
         if (!(mOptions.options & NoStartupCurrentProject)) {
             Path current = Path(mOptions.dataDir + ".currentProject").readAll(1024);
@@ -249,6 +241,7 @@ bool Server::init(const Options &options)
                 }
             }
         }
+        break;
     }
 
     return true;
@@ -390,12 +383,13 @@ bool Server::index(const String &arguments, const Path &pwd, const Path &project
                 addProject(root);
                 assert(project);
             }
-            project->load();
+            if (project->load()) {
             if (!mCurrentProject.lock())
                 setCurrentProject(project);
             project->index(std::shared_ptr<IndexerJob>(new IndexerJob(source, IndexerJob::Compile, root)));
             ret = true;
         }
+    }
     }
     return ret;
 }
@@ -1021,9 +1015,15 @@ void Server::clearProjects()
     Path::mkdir(mOptions.dataDir);
     setCurrentProject(std::shared_ptr<Project>());
     mProjects.clear();
-    Rct::removeDirectory(mOptions.dataDir);
-    mDB.close();
-    mDB.open(mOptions.dataDir + "db", mDB.Overwrite);
+    mOptions.dataDir.visit([](const Path &path, void *userData) {
+            if (path.isDir()) {
+                Path::rm(path);
+            } else if (strcmp(path.fileName(), "db")) {
+                Rct::removeDirectory(path);
+            }
+            return Path::Continue;
+        });
+    loadFileIds();
 }
 
 void Server::reindex(const std::shared_ptr<QueryMessage> &query, Connection *conn)
@@ -1738,6 +1738,35 @@ bool Server::runTests()
             }
         }
         error() << passes << "passes" << failures << "failures" << (tests.size() - failures - passes) << "invalid";
+    }
+    return ret;
+}
+
+int Server::loadFileIds()
+{
+    mDB.close();
+    if (!mDB.open(mOptions.dataDir + "db")) {
+        return -1;
+    }
+
+    int ret = 0;
+
+    const String version = mDB.value("dbVersion");
+    const String expectedVersion = String::number(RTags::DatabaseVersion);
+    if (version != expectedVersion) {
+        error() << "Invalid version. Expected" << expectedVersion << "got" << version;
+        auto scope = mDB.createWriteScope(1024);
+        mDB.set("dbVersion", expectedVersion);
+        mDB.remove("fileIds");
+    } else {
+        const String data = mDB.value("fileIds");
+        if (!data.isEmpty()) {
+            Deserializer deserializer(data);
+            Hash<Path, uint32_t> pathsToIds;
+            deserializer >> pathsToIds;
+            ret = pathsToIds.size();
+            Location::init(pathsToIds);
+        }
     }
     return ret;
 }
