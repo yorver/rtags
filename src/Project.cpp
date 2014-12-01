@@ -53,8 +53,11 @@ public:
         if (!db)
             db.reset(new T);
         if (db->path().isEmpty()) {
-            error() << "Opening" << (dbPath + name);
-            return db->open(dbPath + name);
+            warning() << "Opening" << (dbPath + name);
+            if (!db->open(dbPath + name)) {
+                error() << "Failed to open database" << dbPath + name;
+                return false;
+            }
         }
         return true;
     }
@@ -439,21 +442,21 @@ bool Project::load(FileManagerMode mode)
         break;
     case Inited:
         break;
-    case Loading:
     case Loaded:
+        return true;
+    case Loading:
     case Syncing:
         return false;
     }
     mState = Loading;
 #ifdef RCT_DB_USE_MAP
-#warning bar
     RestoreThread *thread = new RestoreThread(shared_from_this());
     thread->start();
-#else
-    RestoreThread::openDBs(this);
-    mState = Loaded;
-#endif
     return true;
+#else
+    mState = Loaded;
+    return RestoreThread::openDBs(this);
+#endif
 }
 
 void Project::unload()
@@ -464,13 +467,14 @@ void Project::unload()
     case Syncing:
     case Loading: {
         std::weak_ptr<Project> weak = shared_from_this();
-        EventLoop::eventLoop()->registerTimer([weak](int) { if (std::shared_ptr<Project> project = weak.lock()) project->unload(); },
-                                              1000, Timer::SingleShot);
+        EventLoop::eventLoop()->registerTimer([weak](int) {
+                if (std::shared_ptr<Project> project = weak.lock())
+                    project->unload(); },
+            1000, Timer::SingleShot);
         return; }
     default:
         break;
     }
-    save(); // we always save since sources very likely had their Enabledness changed
     for (const auto &job : mActiveJobs) {
         assert(job.second);
         Server::instance()->jobScheduler()->abort(job.second);
@@ -590,22 +594,6 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
     } else if (mActiveJobs.isEmpty()) {
         mSyncTimer.restart(indexData->flags & IndexerJob::Dirty ? 0 : SyncTimeout, Timer::SingleShot);
     }
-}
-
-bool Project::save()
-{
-    if (!Server::instance()->saveFileIds()) {
-        return false;
-    }
-
-    String visited;
-    Serializer serialize(visited);
-    serialize << mVisitedFiles;
-
-    auto writeScope = mGeneral->createWriteScope(1024 * 256);
-    mGeneral->set("visitedFiles", visited);
-
-    return writeScope->flush();
 }
 
 static inline void markActive(const std::unique_ptr<SourceMap::Iterator> &start, uint32_t buildId)
@@ -1295,11 +1283,11 @@ String Project::sync()
         return String();
     }
 
-    auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 256 * mIndexData.size());
-    auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512 * mIndexData.size());
-    auto usrScope = mUsr->createWriteScope(1024 * 32 * mIndexData.size());
-    auto dependenciesScope = mDependencies->createWriteScope(1024 * 32 * mIndexData.size());
     if (!mDirtyFiles.isEmpty()) {
+        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024);
+        auto symbolsWriteScope = mSymbols->createWriteScope(1024);
+        auto usrScope = mUsr->createWriteScope(1024);
+        auto dependenciesScope = mDependencies->createWriteScope(1024);
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
         RTags::dirtySymbolNames(mSymbolNames, mDirtyFiles);
         RTags::dirtyUsr(mUsr, mDirtyFiles);
@@ -1312,6 +1300,11 @@ String Project::sync()
     int symbols = 0;
     int symbolNames = 0;
     for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
+        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 256);
+        auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512);
+        auto usrScope = mUsr->createWriteScope(1024 * 32);
+        auto dependenciesScope = mDependencies->createWriteScope(1024 * 32);
+
         const std::shared_ptr<IndexData> &data = it->second;
         addDependencies(data->dependencies, newFiles);
         addFixIts(data->dependencies, data->fixIts);
@@ -1322,17 +1315,31 @@ String Project::sync()
         symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
     }
 
-    for (const Hash<String, Set<Location> > *map : pendingReferences)
-        resolvePendingReferences(mSymbols, mUsr, *map);
+    {
+        auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512);
+        auto usrScope = mUsr->createWriteScope(1024 * 32);
+        for (const Hash<String, Set<Location> > *map : pendingReferences)
+            resolvePendingReferences(mSymbols, mUsr, *map);
+    }
 
     for (auto it = newFiles.constBegin(); it != newFiles.constEnd(); ++it) {
         watch(Location::path(*it));
     }
-    if (!symbolNameWriteScope->flush()) {
-        error() << "Failed to write symbol names" << mSymbolNames->path();
-    }
     const int syncTime = sw.restart();
-    save();
+    for (int i=0; i<3 && !Server::instance()->saveFileIds(); ++i) {
+        // this has to work or we're screwed
+        usleep(1000);
+    }
+
+    {
+        String visited;
+        Serializer serialize(visited);
+        serialize << mVisitedFiles;
+
+        auto writeScope = mGeneral->createWriteScope(1024 * 256);
+        mGeneral->set("visitedFiles", visited);
+    }
+
     const int saveTime = sw.elapsed();
     double timerElapsed = (mTimer.elapsed() / 1000.0);
     const double averageJobTime = timerElapsed / mIndexData.size();
