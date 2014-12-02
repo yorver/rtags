@@ -33,6 +33,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 class IndexData;
 class FileManager;
 class IndexerJob;
+class RestoreThread;
 class Connection;
 class Dirty;
 class Project : public std::enable_shared_from_this<Project>
@@ -43,6 +44,8 @@ public:
 
     enum State {
         Unloaded,
+        Inited,
+        Loading,
         Loaded,
         Syncing
     };
@@ -119,6 +122,7 @@ public:
     bool startSync(SyncMode mode);
     String sync();
 private:
+    void updateContents(RestoreThread *thread);
     void watch(const Path &file);
     void reloadFileManager();
     void addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles);
@@ -164,6 +168,7 @@ private:
 
     mutable std::mutex mMutex;
 
+    friend class RestoreThread;
     friend class SyncThread;
 };
 

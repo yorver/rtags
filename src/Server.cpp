@@ -229,16 +229,15 @@ bool Server::init(const Options &options)
     default:
         reloadProjects();
         if (!(mOptions.options & NoStartupCurrentProject)) {
-            const Path current = mDB.value("currentProject");
-            if (!current.isEmpty()) {
+            Path current = Path(mOptions.dataDir + ".currentProject").readAll(1024);
+            if (current.size() > 1) {
+                current.chop(1);
                 const auto project = mProjects.value(current);
                 if (!project) {
                     error() << "Can't restore project" << current;
-                    auto scope = mDB.createWriteScope(1024);
-                    mDB.remove("currentProject");
+                    unlink((mOptions.dataDir + ".currentProject").constData());
                 } else {
                     setCurrentProject(project);
-                    error() << "Set current project" << current;
                 }
             }
         }
@@ -1016,14 +1015,15 @@ void Server::clearProjects()
     Path::mkdir(mOptions.dataDir);
     setCurrentProject(std::shared_ptr<Project>());
     mProjects.clear();
-    mOptions.dataDir.visit([](const Path &path, void *) {
+    mOptions.dataDir.visit([](const Path &path, void *userData) {
             if (!path.isDir()) {
                 Path::rm(path);
-            } else if (strcmp(path.fileName(), "db/")) {
+            } else if (strcmp(path.fileName(), "db")) {
                 Rct::removeDirectory(path);
             }
             return Path::Continue;
         });
+    loadFileIds();
 }
 
 void Server::reindex(const std::shared_ptr<QueryMessage> &query, Connection *conn)
@@ -1082,24 +1082,34 @@ void Server::setCurrentProject(const std::shared_ptr<Project> &project, unsigned
         if (old && old->fileManager)
             old->fileManager->clearFileSystemWatcher();
         mCurrentProject = project;
-        auto scope = mDB.createWriteScope(1024);
         if (project) {
-            mDB.set("currentProject", project->path());
+            Path::mkdir(mOptions.dataDir);
+            FILE *f = fopen((mOptions.dataDir + ".currentProject").constData(), "w");
+            if (f) {
+                if (!fwrite(project->path().constData(), project->path().size(), 1, f) || !fwrite("\n", 1, 1, f)) {
+                    error() << "error writing to" << (mOptions.dataDir + ".currentProject");
+                    fclose(f);
+                    unlink((mOptions.dataDir + ".currentProject").constData());
+                } else {
+                    fclose(f);
+                }
+            } else {
+                error() << "error opening" << (mOptions.dataDir + ".currentProject") << "for write";
+            }
             Project::FileManagerMode mode = Project::FileManager_Asynchronous;
             if (queryFlags & QueryMessage::WaitForLoadProject)
                 mode = Project::FileManager_Synchronous;
             switch (project->state()) {
             case Project::Loaded:
-            case Project::Syncing:
-                assert(project->fileManager);
+            case Project::Inited:
                 project->fileManager->reload(FileManager::Asynchronous);
                 break;
-            case Project::Unloaded:
-                project->load(mode);
+            default:
                 break;
             }
+            project->load(mode);
         } else {
-            mDB.remove("currentProject");
+            Path::rm(mOptions.dataDir + ".currentProject");
         }
     }
 }
@@ -1434,9 +1444,8 @@ void Server::handleVisitFileMessage(const std::shared_ptr<VisitFileMessage> &mes
 bool Server::saveFileIds()
 {
     const uint32_t lastId = Location::lastId();
-    if (mLastFileId == lastId) {
+    if (mLastFileId == lastId)
         return true;
-    }
     String data;
     Serializer serializer(data);
     Location::serialize(serializer);
@@ -1447,7 +1456,6 @@ bool Server::saveFileIds()
         return false;
     }
     mLastFileId = lastId;
-
     return true;
 }
 
@@ -1736,7 +1744,7 @@ bool Server::runTests()
 
 int Server::loadFileIds()
 {
-    // error() << "loading" << (mOptions.dataDir + "db");
+    mDB.close();
     if (!mDB.open(mOptions.dataDir + "db")) {
         return -1;
     }
@@ -1746,8 +1754,7 @@ int Server::loadFileIds()
     const String version = mDB.value("dbVersion");
     const String expectedVersion = String::number(RTags::DatabaseVersion);
     if (version != expectedVersion) {
-        if (mDB.contains("fileIds"))
-            error() << "Invalid version. Expected" << expectedVersion << "got" << version;
+        error() << "Invalid version. Expected" << expectedVersion << "got" << version;
         auto scope = mDB.createWriteScope(1024);
         mDB.set("dbVersion", expectedVersion);
         mDB.remove("fileIds");
