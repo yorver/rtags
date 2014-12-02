@@ -14,17 +14,66 @@ You should have received a copy of the GNU General Public License
 along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "FileManager.h"
-#include "ScanThread.h"
 #include "Server.h"
 #include "Filter.h"
 #include "Project.h"
+
+class ScanThread : public Thread
+{
+public:
+    ScanThread(const std::shared_ptr<FileManager> &fileManager, const Path &path)
+        : Thread(), mPath(path), mFilters(Server::instance()->options().excludeFilters), mFileManager(fileManager)
+    {
+        setAutoDelete(true);
+    }
+    ScanThread(const Path &path);
+    virtual void run()
+    {
+        const Set<Path> p = paths(mPath, mFilters);
+        std::weak_ptr<FileManager> weak = mFileManager;
+        EventLoop::mainEventLoop()->callLater([weak, p]() {
+                if (std::shared_ptr<FileManager> proj = weak.lock())
+                    proj->onRecurseJobFinished(p);
+            });
+    }
+    static Set<Path> paths(const Path &path, const List<String> &filters)
+    {
+        UserData userData = { Set<Path>(), filters };
+        path.visit([](const Path &path, void *userData) {
+                UserData *u = reinterpret_cast<UserData*>(userData);
+                const Filter::Result result = Filter::filter(path, u->filters);
+                switch (result) {
+                case Filter::Filtered:
+                    break;
+                case Filter::Directory:
+                    if (Path::exists(path + "/.rtags-ignore"))
+                        return Path::Continue;
+                    return Path::Recurse;
+                case Filter::File:
+                case Filter::Source:
+                    u->paths.insert(path);
+                    break;
+                }
+                return Path::Continue;
+            }, &userData);
+
+        return userData.paths;
+    }
+private:
+    const Path mPath;
+    const List<String> &mFilters;
+    const std::weak_ptr<FileManager> mFileManager;
+    struct UserData {
+        Set<Path> paths;
+        const List<String> &filters;
+    };
+};
 
 FileManager::FileManager()
     : mLastReloadTime(0)
 {
     mWatcher.added().connect(std::bind(&FileManager::onFileAdded, this, std::placeholders::_1));
     mWatcher.removed().connect(std::bind(&FileManager::onFileRemoved, this, std::placeholders::_1));
-    mScanTimer.timeout().connect(std::bind(&FileManager::startScanThread, this, std::placeholders::_1));
 }
 
 void FileManager::init(const std::shared_ptr<Project> &proj, Mode mode)
@@ -42,9 +91,10 @@ void FileManager::reload(Mode mode)
     std::shared_ptr<Project> project = mProject.lock();
     assert(project);
     if (mode == Asynchronous) {
-        mScanTimer.restart(5000, Timer::SingleShot);
+        startScanThread();
     } else {
-        const Set<Path> paths = ScanThread::paths(project->path());
+        const Set<Path> paths = ScanThread::paths(project->path(),
+                                                  Server::instance()->options().excludeFilters);
         onRecurseJobFinished(paths);
     }
 }
@@ -56,6 +106,7 @@ void FileManager::onRecurseJobFinished(const Set<Path> &paths)
     std::shared_ptr<Project> project = mProject.lock();
     assert(project);
     std::shared_ptr<FilesMap> map = project->files();
+    assert(map);
     map->clear();
     mWatcher.clear();
     for (Set<Path>::const_iterator it = paths.begin(); it != paths.end(); ++it) {
@@ -154,12 +205,10 @@ void FileManager::watch(const Path &path)
         mWatcher.watch(path);
     }
 }
-void FileManager::startScanThread(Timer *)
+void FileManager::startScanThread()
 {
     std::shared_ptr<Project> project = mProject.lock();
     assert(project);
-    ScanThread *thread = new ScanThread(project->path());
-    thread->setAutoDelete(true);
-    thread->finished().connect<EventLoop::Move>(std::bind(&FileManager::onRecurseJobFinished, this, std::placeholders::_1));
+    ScanThread *thread = new ScanThread(shared_from_this(), project->path());
     thread->start();
 }

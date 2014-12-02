@@ -24,7 +24,7 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <mutex>
 
 class Project;
-class FileManager
+class FileManager : public std::enable_shared_from_this<FileManager>
 {
 public:
     FileManager();
@@ -43,9 +43,8 @@ public:
     void clearFileSystemWatcher() { mWatcher.clear(); }
     Set<Path> watchedPaths() const { return mWatcher.watchedPaths(); }
 private:
-    void startScanThread(Timer *);
+    void startScanThread();
     void watch(const Path &path);
-    Timer mScanTimer;
     FileSystemWatcher mWatcher;
     std::weak_ptr<Project> mProject;
     uint64_t mLastReloadTime;

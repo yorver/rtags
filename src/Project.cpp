@@ -38,107 +38,20 @@ enum {
 };
 
 
-class RestoreThread : public Thread
+template <typename T>
+static inline bool openDB(std::shared_ptr<T> &db, const Path &dbPath, const char *name)
 {
-public:
-    RestoreThread(const std::shared_ptr<Project> &project)
-        : mPath(project->path()), mDBPath(project->dbPath()), mWeak(project)
-    {
-        setAutoDelete(true);
-    }
-
-    template <typename T>
-    static inline bool openDB(std::shared_ptr<T> &db, const Path &dbPath, const char *name)
-    {
-        if (!db)
-            db.reset(new T);
-        if (db->path().isEmpty()) {
-            warning() << "Opening" << (dbPath + name);
-            if (!db->open(dbPath + name)) {
-                error() << "Failed to open database" << dbPath + name;
-                return false;
-            }
-        }
-        return true;
-    }
-
-    template <typename T>
-    static inline bool openDBs(T *t)
-    {
-        Path::mkdir(t->mDBPath, Path::Recursive);
-        return (openDB(t->mSymbols, t->mDBPath, "symbols")
-                && openDB(t->mSymbolNames, t->mDBPath, "symbolnames")
-                && openDB(t->mUsr, t->mDBPath, "usr")
-                && openDB(t->mDependencies, t->mDBPath, "dependencies")
-                && openDB(t->mSources, t->mDBPath, "sources")
-                && openDB(t->mGeneral, t->mDBPath, "db"));
-    }
-
-    virtual void run()
-    {
-        StopWatch timer;
-        RestoreThread *thread = restore() ? this : 0;
-        std::mutex mutex;
-        std::condition_variable condition;
-        bool finished = false;
-
-        EventLoop::mainEventLoop()->callLater([this, thread, &timer, &mutex, &condition, &finished]() {
-                if (std::shared_ptr<Project> proj = mWeak.lock()) {
-                    const bool restored = thread && thread->mSources->size();
-                    proj->updateContents(thread);
-                    if (restored)
-                        error() << "Restored project" << mPath << "in" << timer.elapsed() << "ms";
-                }
-                std::unique_lock<std::mutex> lock(mutex);
-                finished = true;
-                condition.notify_one();
-            });
-
-        std::unique_lock<std::mutex> lock(mutex);
-        while (!finished) {
-            condition.wait(lock);
+    if (!db)
+        db.reset(new T);
+    if (db->path().isEmpty()) {
+        warning() << "Opening" << (dbPath + name);
+        if (!db->open(dbPath + name)) {
+            error() << "Failed to open database" << dbPath + name;
+            return false;
         }
     }
-
-    bool restore()
-    {
-        if (!openDBs(this)) {
-            return false; // there's really no way to recover from this
-        }
-
-        std::shared_ptr<DependencyMap::WriteScope> writeScope;
-        for (auto source = mSources->createIterator(); source->isValid(); source->next()) {
-            auto it = mDependencies->find(source->value().fileId);
-            if (!it->isValid()) {
-                if (!writeScope)
-                    writeScope = mDependencies->createWriteScope(8 * 1024);
-                Set<uint32_t> deps;
-                deps.insert(source->value().fileId);
-                mDependencies->set(source->value().fileId, deps);
-            } else if (!it->value().contains(source->value().fileId)) {
-                if (!writeScope)
-                    writeScope = mDependencies->createWriteScope(8 * 1024);
-                auto deps = it->value();
-                deps.insert(source->value().fileId);
-                it->setValue(deps);
-            }
-            // if we save before finishing a sync we may have saved mSources
-            // without ever having parsed them, if so they won't depend on
-            // anything. Make sure they depend on themselves
-        }
-        return true;
-    }
-
-    const Path mPath;
-    const Path mDBPath;
-    std::shared_ptr<SymbolMap> mSymbols;
-    std::shared_ptr<SymbolNameMap> mSymbolNames;
-    std::shared_ptr<UsrMap> mUsr;
-    std::shared_ptr<DependencyMap> mDependencies;
-    std::shared_ptr<SourceMap> mSources;
-    std::shared_ptr<DB<String, String> > mGeneral;
-    std::weak_ptr<Project> mWeak;
-};
+    return true;
+}
 
 class SyncThread : public Thread
 {
@@ -271,7 +184,7 @@ public:
                 }
             }
             if (ret)
-                mDirty.insert(source.fileId);
+                insertDirtyFile(source.fileId);
 
             assert(!ret || mDirty.contains(source.fileId));
         }
@@ -344,65 +257,79 @@ Project::~Project()
     assert(mActiveJobs.isEmpty());
 }
 
-void Project::updateContents(RestoreThread *thread)
+bool Project::load(FileManagerMode mode)
 {
-    assert(EventLoop::isMainThread());
-    if (state() != Loading)
-        return;
+    switch (mState) {
+    case Syncing:
+    case Loaded:
+        return true;
+    case Unloaded:
+        fileManager.reset(new FileManager);
+        fileManager->init(shared_from_this(),
+                          mode == FileManager_Asynchronous ? FileManager::Asynchronous : FileManager::Synchronous);
+        break;
+    }
+
+    Path::mkdir(mDBPath, Path::Recursive);
+    if (!openDB(mSymbols, mDBPath, "symbols")
+        || !openDB(mSymbolNames, mDBPath, "symbolnames")
+        || !openDB(mUsr, mDBPath, "usr")
+        || !openDB(mDependencies, mDBPath, "dependencies")
+        || !openDB(mSources, mDBPath, "sources")
+        || !openDB(mGeneral, mDBPath, "db")) {
+        return false;
+    }
+
+    mState = Loaded;
+    mFiles.reset(new FilesMap);
 
     std::unique_ptr<ComplexDirty> dirty;
-    if (thread) {
-        mSymbols = thread->mSymbols;
-        mSymbolNames = thread->mSymbolNames;
-        mUsr = thread->mUsr;
-        mDependencies = thread->mDependencies;
-        mSources = thread->mSources;
-        mGeneral = thread->mGeneral;
-        const String visited = mGeneral->value("visitedFiles");
-        if (!visited.isEmpty()) {
-            Deserializer deserializer(visited);
-            deserializer >> mVisitedFiles;
-        }
+    const String visited = mGeneral->value("visitedFiles");
+    if (!visited.isEmpty()) {
+        Deserializer deserializer(visited);
+        deserializer >> mVisitedFiles;
+    }
 
-        for (auto dep = mDependencies->createIterator(); dep->isValid(); dep->next()) {
-            watch(Location::path(dep->key()));
-        }
+    for (auto dep = mDependencies->createIterator(); dep->isValid(); dep->next()) {
+        watch(Location::path(dep->key()));
+    }
 
-        if (Server::instance()->suspended()) {
-            dirty.reset(new SuspendedDirty);
-        } else {
-            dirty.reset(new IfModifiedDirty(mDependencies));
-        }
+    if (Server::instance()->suspended()) {
+        dirty.reset(new SuspendedDirty);
+    } else {
+        dirty.reset(new IfModifiedDirty(mDependencies));
+    }
 
-        {
-            std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
-            auto it = mDependencies->createIterator();
+    {
+        std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
+        auto it = mDependencies->createIterator();
 
-            while (it->isValid()) {
-                const Path path = Location::path(it->key());
-                if (!path.isFile()) {
-                    error() << path << "seems to have disappeared";
-                    dirty.get()->insertDirtyFile(it->key());
+        while (it->isValid()) {
+            const Path path = Location::path(it->key());
+            if (!path.isFile()) {
+                error() << path << "seems to have disappeared";
+                dirty.get()->insertDirtyFile(it->key());
 
-                    const Set<uint32_t> &dependents = it->value();
-                    for (auto dependent : dependents) {
-                        // we don't have a file to compare with to
-                        // know whether the source is parsed after the
-                        // file was removed... so, force sources
-                        // dirty.
-                        dirty.get()->insertDirtyFile(dependent);
-                    }
-
-                    if (!dependenciesWriteScope)
-                        dependenciesWriteScope = mDependencies->createWriteScope(1024 * 8);
-
-                    it->erase();
-                } else {
-                    it->next();
+                const Set<uint32_t> &dependents = it->value();
+                for (auto dependent : dependents) {
+                    // we don't have a file to compare with to
+                    // know whether the source is parsed after the
+                    // file was removed... so, force sources
+                    // dirty.
+                    dirty.get()->insertDirtyFile(dependent);
                 }
+
+                if (!dependenciesWriteScope)
+                    dependenciesWriteScope = mDependencies->createWriteScope(1024 * 8);
+
+                it->erase();
+            } else {
+                it->next();
             }
         }
+    }
 
+    {
         std::shared_ptr<SourceMap::WriteScope> sourcesWriteScope;
         auto it = mSources->createIterator();
         while (it->isValid()) {
@@ -418,45 +345,9 @@ void Project::updateContents(RestoreThread *thread)
             }
         }
     }
-    List<std::shared_ptr<IndexerJob> > pendingJobs = std::move(mPendingJobs);
-    mState = Loaded;
     if (dirty)
         startDirtyJobs(dirty.get());
-
-    for (const auto &job : pendingJobs) {
-        assert(job);
-        index(job);
-    }
-}
-
-bool Project::load(FileManagerMode mode)
-{
-    if (!mFiles)
-        mFiles.reset(new FilesMap);
-    switch (mState) {
-    case Unloaded:
-        fileManager.reset(new FileManager);
-        fileManager->init(shared_from_this(),
-                          mode == FileManager_Asynchronous ? FileManager::Asynchronous : FileManager::Synchronous);
-        // duplicated from init
-        break;
-    case Inited:
-        break;
-    case Loaded:
-        return true;
-    case Loading:
-    case Syncing:
-        return false;
-    }
-    mState = Loading;
-#ifdef RCT_DB_USE_MAP
-    RestoreThread *thread = new RestoreThread(shared_from_this());
-    thread->start();
     return true;
-#else
-    mState = Loaded;
-    return RestoreThread::openDBs(this);
-#endif
 }
 
 void Project::unload()
@@ -464,8 +355,7 @@ void Project::unload()
     switch (mState) {
     case Unloaded:
         return;
-    case Syncing:
-    case Loading: {
+    case Syncing: {
         std::weak_ptr<Project> weak = shared_from_this();
         EventLoop::eventLoop()->registerTimer([weak](int) {
                 if (std::shared_ptr<Project> project = weak.lock())
@@ -514,7 +404,7 @@ bool Project::match(const Match &p, bool *indexed) const
             if (indexed)
                 *indexed = true;
             return true;
-        } else if (mFiles->contains(path) || p.match(mPath) || p.match(resolvedPath)) {
+        } else if ((mFiles && mFiles->contains(path)) || p.match(mPath) || p.match(resolvedPath)) {
             if (!indexed)
                 return true;
             ret = true;
@@ -630,6 +520,7 @@ void Project::index(const std::shared_ptr<IndexerJob> &job)
     }
 
     if (mState != Loaded) {
+        assert(mState == Syncing);
         mPendingJobs.append(job);
         return;
     }

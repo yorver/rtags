@@ -116,7 +116,6 @@ set(RTAGS_SOURCES
     QueryJob.cpp
     RTagsClang.cpp
     ReferencesJob.cpp
-    ScanThread.cpp
     Server.cpp
     Source.cpp
     StatusJob.cpp)
