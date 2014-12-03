@@ -39,13 +39,13 @@ enum {
 
 
 template <typename T>
-static inline bool openDB(std::shared_ptr<T> &db, const Path &dbPath, const char *name)
+static inline bool openDB(std::shared_ptr<T> &db, const Path &dbPath, const char *name, std::function<int(const char *l, int ll, const char *r, int rl)> cmp = 0)
 {
     if (!db)
         db.reset(new T);
     if (db->path().isEmpty()) {
         warning() << "Opening" << (dbPath + name);
-        if (!db->open(dbPath + name)) {
+        if (!db->open(dbPath + name, 0, cmp)) {
             error() << "Failed to open database" << dbPath + name;
             return false;
         }
@@ -270,8 +270,16 @@ bool Project::load(FileManagerMode mode)
         break;
     }
 
+    auto symbolsCompare = [](const char *a, int, const char *b, int) {
+        const uint64_t aval = *reinterpret_cast<const uint64_t*>(a);
+        const uint64_t bval = *reinterpret_cast<const uint64_t*>(b);
+        if (aval < bval)
+            return -1;
+        return aval == bval ? 0 : 1;
+    };
+
     Path::mkdir(mDBPath, Path::Recursive);
-    if (!openDB(mSymbols, mDBPath, "symbols")
+    if (!openDB(mSymbols, mDBPath, "symbols", symbolsCompare)
         || !openDB(mSymbolNames, mDBPath, "symbolnames")
         || !openDB(mUsr, mDBPath, "usr")
         || !openDB(mDependencies, mDBPath, "dependencies")
