@@ -127,7 +127,13 @@ int main(int argc, char** argv)
     Location::set("foo", 1);
     DB<Location, String> db;
 
-    db.open("/tmp/fisk2", db.Overwrite);
+    db.open("/tmp/fisk2", db.Overwrite, [](const char *a, int, const char *b, int) {
+            const uint64_t aval = *reinterpret_cast<const uint64_t*>(a);
+            const uint64_t bval = *reinterpret_cast<const uint64_t*>(b);
+            if (aval < bval)
+                return -1;
+            return aval == bval ? 0 : 1;
+        });
     {
         auto batch = db.createWriteScope(1000);
         db.set(Location(1, 59, 48), "bigger 48");
