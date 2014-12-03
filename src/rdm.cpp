@@ -123,37 +123,6 @@ static void usage(FILE *f)
 
 int main(int argc, char** argv)
 {
-#if 0
-    Location::set("foo", 1);
-    DB<Location, String> db;
-
-    db.open("/tmp/fisk2", db.Overwrite, [](const char *a, int, const char *b, int) {
-            const uint64_t aval = *reinterpret_cast<const uint64_t*>(a);
-            const uint64_t bval = *reinterpret_cast<const uint64_t*>(b);
-            if (aval < bval)
-                return -1;
-            return aval == bval ? 0 : 1;
-        });
-    {
-        auto batch = db.createWriteScope(1000);
-        db.set(Location(1, 59, 48), "bigger 48");
-        db.set(Location(1, 59, 38), "bigger 38");
-        db.set(Location(1, 59, 6), "correct");
-        db.set(Location(1, 1, 1), "other");
-    }
-
-    for (auto i = db.createIterator(); i->isValid(); i->next()) {
-        error() << i->key();
-    }
-
-    auto it = db.lower_bound(Location(1, 59, 8));
-    error() << "lower_bound =>" << it->key();
-    it->prev();
-    error() << "prev" << it->key();
-
-    return 0;
-#endif
-
     {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
