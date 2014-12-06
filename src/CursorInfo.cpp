@@ -120,3 +120,32 @@ bool CursorInfo::isReference(unsigned int kind)
 {
     return RTags::isReference(kind);
 }
+
+std::unique_ptr<SymbolMap::Iterator> CursorInfo::findCursorInfo(const std::shared_ptr<SymbolMap> &map, const Location &location)
+{
+    std::unique_ptr<DB<Location, std::shared_ptr<CursorInfo> >::Iterator> it = map->lower_bound(location);
+    if (it->isValid()) {
+        if (it->key() == location) {
+            return it;
+        }
+        error() << "Found a thing for" << location << it->key();
+        it->prev();
+    } else {
+        it->seekToEnd();
+        error() << "Seeking to end";
+    }
+
+    if (!it->isValid()) {
+        return it;
+    }
+
+    error() << "Now looking at" << it->key();
+
+    if (it->key().fileId() == location.fileId() && location.line() == it->key().line()) {
+        const int off = location.column() - it->key().column();
+        if (it->value()->symbolLength > off) {
+            return it;
+        }
+    }
+    return map->createIterator(map->Invalid);
+}

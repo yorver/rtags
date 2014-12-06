@@ -30,7 +30,7 @@ StatusJob::StatusJob(const std::shared_ptr<QueryMessage> &q, const std::shared_p
 int StatusJob::execute()
 {
     bool matched = false;
-    const char *alternatives = "fileids|watchedpaths|dependencies|symbols|symbolnames|sources|jobs|info|compilers";
+    const char *alternatives = "fileids|watchedpaths|dependencies|symbols|symbollocations|symbolnames|sources|jobs|info|compilers";
 
     if (!strcasecmp(query.constData(), "fileids")) {
         matched = true;
@@ -106,19 +106,21 @@ int StatusJob::execute()
                 return 1;
         }
     }
-
-    if (query.isEmpty() || !strcasecmp(query.constData(), "symbols")) {
+    const bool symbollocations = !strcasecmp(query.constData(), "symbollocations");
+    if (query.isEmpty() || symbollocations || !strcasecmp(query.constData(), "symbols")) {
         matched = true;
         const std::shared_ptr<SymbolMap> map = proj->symbols();
         write(delimiter);
-        write("symbols");
+        write(symbollocations ? "symbollocations" : "symbols");
         write(delimiter);
         for (auto it = map->createIterator(); it->isValid(); it->next()) {
             const Location loc = it->key();
-            const std::shared_ptr<CursorInfo> ci = it->value();
             write(loc);
-            write(ci);
-            write("------------------------");
+            if (!symbollocations) {
+                const std::shared_ptr<CursorInfo> ci = it->value();
+                write(ci);
+                write("------------------------");
+            }
             if (isAborted())
                 return 1;
         }
