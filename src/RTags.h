@@ -33,7 +33,7 @@ class Database;
 class Project;
 namespace RTags {
 
-enum { DatabaseVersion = 1024 };
+enum { DatabaseVersion = 52 };
 enum { ASTManifestVersion = 1 };
 
 enum {
