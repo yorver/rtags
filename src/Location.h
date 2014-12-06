@@ -92,9 +92,9 @@ public:
         return id;
     }
 
-    inline uint32_t fileId() const { return static_cast<uint32_t>((val & FILEID_MASK) >> (FileBits + LineBits)); }
-    inline uint32_t line() const { return static_cast<uint32_t>((val & LINE_MASK) >> FileBits); }
-    inline uint32_t column() const { return static_cast<uint32_t>(val & COLUMN_MASK); }
+    inline uint32_t fileId() const { return static_cast<uint32_t>((mData & FILEID_MASK) >> (FileBits + LineBits)); }
+    inline uint32_t line() const { return static_cast<uint32_t>((mData & LINE_MASK) >> FileBits); }
+    inline uint32_t column() const { return static_cast<uint32_t>(mData & COLUMN_MASK); }
 
     inline Path path() const
     {
