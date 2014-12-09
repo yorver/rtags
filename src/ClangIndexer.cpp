@@ -744,6 +744,11 @@ void ClangIndexer::superclassTemplateMemberFunctionUgleHack(const CXCursor &curs
     }
 }
 
+static inline void findSymbolNameAndSymbolLength(const CXCursor &cursor, String &symbolName, int &symbolLength)
+{
+
+
+}
 
 std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind,
                                                           const Location &location, const CXCursor &ref,
@@ -808,18 +813,18 @@ std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor
     }
 
     std::shared_ptr<CursorInfo> &refInfo = mData->symbols[reffedLoc];
-    // if (refInfo) {
-    //     refInfo->references.insert(location);
-    // } else {
-    //     mData->references[location].insert(reffedLoc);
-    // }
-    // if (refInfo && !refInfo->symbolLength) {
-    //     error() << "Already had" << reffedLoc << *refInfo.get();
-    // }
-    if ((!refInfo || !refInfo->symbolLength) && !handleCursor(ref, refKind, reffedLoc))
-        return std::shared_ptr<CursorInfo>();
-
-    refInfo->references.insert(location);
+    assert(!refInfo || refInfo->symbolLength);
+    uint16_t refKind;
+    String refSymbolName;
+    int refSymbolLength;
+    if (refInfo) {
+        refInfo->references.insert(location);
+        refKind = refInfo->kind;
+        refSymbolLength = refInfo->symbolLength;
+        refSymbolName = refInfo->symbolNames;
+    } else {
+        mData->references[location].insert(reffedLoc);
+    }
 
     std::shared_ptr<CursorInfo> &info = mData->symbols[location];
     if (!info)
