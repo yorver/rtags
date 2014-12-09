@@ -185,10 +185,6 @@ bool Server::init(const Options &options)
     for (const auto &inc : mOptions.includePaths)
         l << inc.toString();
 
-    if (mOptions.options & ClearProjects) {
-        clearProjects();
-    }
-
     for (int i=0; i<10; ++i) {
         mUnixServer.reset(new SocketServer);
         warning() << "listening" << mOptions.socketFile;
@@ -237,8 +233,9 @@ bool Server::init(const Options &options)
                     auto scope = mDB.createWriteScope(1024);
                     mDB.remove("currentProject");
                 } else {
+                    StopWatch sw;
                     setCurrentProject(project);
-                    error() << "Set current project" << current;
+                    error() << "Set current project" << current << "in" << String::format("%.1fms", sw.elapsed() / 1000.0);
                 }
             }
         }
@@ -1743,22 +1740,28 @@ int Server::loadFileIds()
 
     int ret = 0;
 
-    const String version = mDB.value("dbVersion");
     const String expectedVersion = String::number(RTags::DatabaseVersion);
-    if (version != expectedVersion) {
-        if (mDB.contains("fileIds"))
-            error() << "Invalid version. Expected" << expectedVersion << "got" << version;
+    if (mOptions.options & ClearProjects) {
         auto scope = mDB.createWriteScope(1024);
         mDB.set("dbVersion", expectedVersion);
         mDB.remove("fileIds");
     } else {
-        const String data = mDB.value("fileIds");
-        if (!data.isEmpty()) {
-            Deserializer deserializer(data);
-            Hash<Path, uint32_t> pathsToIds;
-            deserializer >> pathsToIds;
-            ret = pathsToIds.size();
-            Location::init(pathsToIds);
+        const String version = mDB.value("dbVersion");
+        if (version != expectedVersion) {
+            if (mDB.contains("fileIds"))
+                error() << "Invalid version. Expected" << expectedVersion << "got" << version;
+            auto scope = mDB.createWriteScope(1024);
+            mDB.set("dbVersion", expectedVersion);
+            mDB.remove("fileIds");
+        } else {
+            const String data = mDB.value("fileIds");
+            if (!data.isEmpty()) {
+                Deserializer deserializer(data);
+                Hash<Path, uint32_t> pathsToIds;
+                deserializer >> pathsToIds;
+                ret = pathsToIds.size();
+                Location::init(pathsToIds);
+            }
         }
     }
     return ret;
