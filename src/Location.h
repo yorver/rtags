@@ -121,13 +121,9 @@ public:
     inline bool operator!=(const Location &other) const { return mData != other.mData; }
     inline int compare(const Location &other) const
     {
-        int ret = intCompare(fileId(), other.fileId());
-        if (!ret) {
-            ret = intCompare(line(), other.line());
-            if (!ret)
-                ret = intCompare(column(), other.column());
-        }
-        return ret;
+        if (mData < other.mData)
+            return -1;
+        return mData > other.mData ? 1 : 0;
     }
     inline bool operator<(const Location &other) const
     {
