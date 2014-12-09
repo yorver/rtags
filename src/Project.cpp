@@ -822,6 +822,22 @@ static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, const
     return ret;
 }
 
+
+static inline void joinCursors(SymbolMapMemory &symbols, const Set<Location> &locations)
+{
+    for (auto it = locations.begin(); it != locations.end(); ++it) {
+        const auto c = symbols.find(*it);
+        if (c != symbols.constEnd()) {
+            std::shared_ptr<CursorInfo> &cursorInfo = c->second;
+            for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
+                if (innerIt != it)
+                    cursorInfo->targets.insert(*innerIt);
+            }
+            // ### this is filthy, we could likely think of something better
+        }
+    }
+}
+
 static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const Set<Location> &locations)
 {
     for (auto it = locations.begin(); it != locations.end(); ++it) {
@@ -843,9 +859,17 @@ static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const 
     }
 }
 
-static inline void writeUsr(const Hash<String, Set<Location> > &usr, const std::shared_ptr<UsrMap> &current, const std::shared_ptr<SymbolMap> &symbols)
+static inline void writeUsr(const Hash<String, Set<Location> > &usr,
+                            const std::shared_ptr<UsrMap> &current,
+                            SymbolMapMemory &symbolsMemory,
+                            const std::shared_ptr<SymbolMap> &symbols)
 {
+    // error() << "Writing usr" << usr.size();
     for (const auto &it : usr) {
+        // error() << "usr" << it.first << it.second;
+        if (it.second.size() > 1)
+            joinCursors(symbolsMemory, it.second);
+
         auto cur = current->find(it.first);
         if (!cur->isValid()) {
             current->set(it.first, it.second);
@@ -853,8 +877,9 @@ static inline void writeUsr(const Hash<String, Set<Location> > &usr, const std::
             Set<Location> merged;
             if (uniteSet(cur->value(), it.second, merged)) {
                 cur->setValue(merged);
-                if (merged.size() > 1)
+                if (merged.size() > 1) {
                     joinCursors(symbols, merged);
+                }
             }
         }
     }
@@ -1209,8 +1234,8 @@ String Project::sync()
         addFixIts(data->dependencies, data->fixIts);
         if (!data->pendingReferenceMap.isEmpty())
             pendingReferences.append(&data->pendingReferenceMap);
+        writeUsr(data->usrMap, mUsr, data->symbols, mSymbols);
         symbols += writeSymbols(data->symbols, mSymbols);
-        writeUsr(data->usrMap, mUsr, mSymbols);
         symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
     }
 
