@@ -123,31 +123,6 @@ static void usage(FILE *f)
 
 int main(int argc, char** argv)
 {
-#if 0
-    {
-        auto symbolsCompare = [](const char *a, int, const char *b, int) {
-            const uint64_t aval = *reinterpret_cast<const uint64_t*>(a);
-            const uint64_t bval = *reinterpret_cast<const uint64_t*>(b);
-            Location a;
-            Location b;
-            a.value = aval;
-            b.value = bval;
-            // printf("%llu (%s) vs %llu (%s)\n", aval, a.
-            if (aval < bval)
-                return -1;
-            return aval == bval ? 0 : 1;
-        };
-        SymbolMap map;
-        map.open("/Users/abakken/.rtags/_Users_abakken_dev_rtags-db_/symbols", 0, symbolsCompare);
-        auto it = map.createIterator();
-        for (int i=0; i<10; ++i) {
-            it->next();
-        }
-        return 0;
-
-    }
-#endif
-
     {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
