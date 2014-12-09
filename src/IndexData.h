@@ -61,6 +61,7 @@ public:
     SymbolNameMapMemory symbolNames;
     DependencyMapMemory dependencies;
     PendingReferenceMapMemory pendingReferenceMap;
+    ReferenceMap references;
     UsrMapMemory usrMap;
     String message; // used as output for dump when flags & Dump
     Hash<uint32_t, Set<FixIt> > fixIts;

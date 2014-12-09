@@ -202,6 +202,8 @@ static inline CursorType cursorType(uint16_t kind)
     switch (kind) {
     case CXCursor_InclusionDirective:
         return Include;
+    case CXCursor_CXXBaseSpecifier:
+        return Other; // we will get a typeref later
     }
     if (clang_isStatement(static_cast<CXCursorKind>(kind))) {
         return Other;

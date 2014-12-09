@@ -45,7 +45,7 @@ String CursorInfo::toString(unsigned cursorInfoFlags, unsigned keyFlags) const
     if (!targets.isEmpty() && !(cursorInfoFlags & IgnoreTargets)) {
         ret.append("Targets:\n");
         for (auto tit = targets.begin(); tit != targets.end(); ++tit) {
-            const Location &l = *tit;
+            const Location &l = tit->first;
             ret.append(String::format<128>("    %s\n", l.key(keyFlags).constData()));
         }
     }
@@ -60,9 +60,9 @@ String CursorInfo::toString(unsigned cursorInfoFlags, unsigned keyFlags) const
     return ret;
 }
 
-int CursorInfo::targetRank(const std::shared_ptr<CursorInfo> &target) const
+int CursorInfo::targetRank(CXCursorKind kind)
 {
-    switch (target->kind) {
+    switch (kind) {
     case CXCursor_Constructor: // this one should be more than class/struct decl
         return 1;
     case CXCursor_ClassDecl:
@@ -76,9 +76,11 @@ int CursorInfo::targetRank(const std::shared_ptr<CursorInfo> &target) const
         // functiondecl and cxx method must be more than cxx
         // CXCursor_FunctionTemplate. Since constructors for templatatized
         // objects seem to come out as function templates
-        return 3;
-    case CXCursor_MacroDefinition:
         return 4;
+    case CXCursor_MacroDefinition:
+        return 5;
+    case CXCursor_TypeRef:
+        return 3;
     default:
         return 2;
     }
@@ -128,18 +130,18 @@ std::unique_ptr<SymbolMap::Iterator> CursorInfo::findCursorInfo(const std::share
         if (it->key() == location) {
             return it;
         }
-        error() << "Found a thing for" << location << it->key();
+        // error() << "Found a thing for" << location << it->key();
         it->prev();
     } else {
         it->seekToEnd();
-        error() << "Seeking to end";
+        // error() << "Seeking to end";
     }
 
     if (!it->isValid()) {
         return it;
     }
 
-    error() << "Now looking at" << it->key();
+    // error() << "Now looking at" << it->key();
 
     if (it->key().fileId() == location.fileId() && location.line() == it->key().line()) {
         const int off = location.column() - it->key().column();

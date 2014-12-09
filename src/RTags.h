@@ -58,6 +58,7 @@ void initMessages();
 class CursorInfo;
 typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
 typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMapMemory;
+typedef Map<Location, Location> ReferenceMap;
 typedef DB<String, Set<Location> > UsrMap;
 typedef Hash<String, Set<Location> > UsrMapMemory;
 typedef Hash<String, Set<Location> > PendingReferenceMapMemory;

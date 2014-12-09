@@ -830,15 +830,20 @@ static inline void joinCursors(SymbolMapMemory &symbols, const Set<Location> &lo
         if (c != symbols.constEnd()) {
             std::shared_ptr<CursorInfo> &cursorInfo = c->second;
             for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
-                if (innerIt != it)
-                    cursorInfo->targets.insert(*innerIt);
+                if (innerIt != it) {
+                    uint16_t kind = CXCursor_FirstInvalid;
+                    auto found = symbols.find(*innerIt);
+                    if (found != symbols.end())
+                        kind = found->second->kind;
+                    cursorInfo->targets[*innerIt] = kind;
+                }
             }
             // ### this is filthy, we could likely think of something better
         }
     }
 }
 
-static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const Set<Location> &locations)
+static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const Set<Location> &locations, const SymbolMapMemory &symbolsMemory)
 {
     for (auto it = locations.begin(); it != locations.end(); ++it) {
         auto c = symbols->find(*it);
@@ -847,8 +852,15 @@ static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const 
             bool changed = false;
             assert(cursorInfo);
             for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
-                if (innerIt != it && cursorInfo->targets.insert(*innerIt)) {
-                    changed = true;
+                if (innerIt != it) {
+                    uint16_t kind = CXCursor_FirstInvalid;
+                    auto found = symbols->find(*innerIt);
+                    if (found->isValid())
+                        kind = found->value()->kind;
+                    if (cursorInfo->targets.value(*innerIt) != kind) {
+                        cursorInfo->targets[*innerIt] = kind;
+                        changed = true;
+                    }
                 }
             }
             if (changed) {
@@ -878,7 +890,7 @@ static inline void writeUsr(const Hash<String, Set<Location> > &usr,
             if (uniteSet(cur->value(), it.second, merged)) {
                 cur->setValue(merged);
                 if (merged.size() > 1) {
-                    joinCursors(symbols, merged);
+                    joinCursors(symbols, merged, symbolsMemory);
                 }
             }
         }
@@ -918,7 +930,7 @@ static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &sy
                 auto referenceCursor = (*symbols)[r];
                 assert(referenceCursor);
                 for (const auto &t : targets) {
-                    referenceCursor->targets.insert(t.first);
+                    referenceCursor->targets[t.first] = t.second->kind;
                     t.second->references.insert(r);
                 }
             }

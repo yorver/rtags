@@ -50,26 +50,13 @@ public:
     static String kindSpelling(uint16_t kind);
     bool dirty(const Set<uint32_t> &dirty)
     {
-        bool changed = false;
-        Set<Location> *locations[] = { &targets, &references };
-        for (int i=0; i<2; ++i) {
-            Set<Location> &l = *locations[i];
-            Set<Location>::iterator it = l.begin();
-            while (it != l.end()) {
-                if (dirty.contains(it->fileId())) {
-                    changed = true;
-                    l.erase(it++);
-                } else {
-                    ++it;
-                }
-            }
-        }
-        return changed;
+        auto match = [&dirty](const Location &loc) { return dirty.contains(loc.fileId()); };
+        return targets.remove(match) + references.remove(match);
     }
 
     String displayName() const;
 
-    int targetRank(const std::shared_ptr<CursorInfo> &target) const;
+    static int targetRank(CXCursorKind kind);
 
     bool isValid() const
     {
@@ -195,7 +182,8 @@ public:
         bool definition;
         int64_t enumValue; // only used if type == CXCursor_EnumConstantDecl
     };
-    Set<Location> targets, references;
+    Set<Location> references;
+    Map<Location, uint16_t> targets;
     int startLine, startColumn, endLine, endColumn;
 private:
     enum Mode {
@@ -308,7 +296,7 @@ inline std::shared_ptr<CursorInfo> CursorInfo::bestTargetImpl(const SymbolMapMem
     int bestRank = -1;
     for (auto it = targets.begin(); it != targets.end(); ++it) {
         const std::shared_ptr<CursorInfo> &ci = it->second;
-        const int r = targetRank(ci);
+        const int r = CursorInfo::targetRank(static_cast<CXCursorKind>(ci->kind));
         if (r > bestRank || (r == bestRank && ci->isDefinition())) {
             bestRank = r;
             best = it;
@@ -326,11 +314,11 @@ inline SymbolMapMemory CursorInfo::targetInfos(const SymbolMapMemory &map) const
 {
     SymbolMapMemory ret;
     for (auto it = targets.begin(); it != targets.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, *it);
+        auto found = CursorInfo::findCursorInfo(map, it->first);
         if (found != map.end()) {
-            ret[*it] = found->second;
+            ret[it->first] = found->second;
         } else {
-            ret[*it] = std::make_shared<CursorInfo>();
+            ret[it->first] = std::make_shared<CursorInfo>();
             // we need this one for inclusion directives which target a
             // non-existing CursorInfo
         }
@@ -342,11 +330,11 @@ inline SymbolMapMemory CursorInfo::targetInfos(const std::shared_ptr<SymbolMap> 
 {
     SymbolMapMemory ret;
     for (auto it = targets.begin(); it != targets.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, *it);
+        auto found = CursorInfo::findCursorInfo(map, it->first);
         if (found->isValid()) {
-            ret[*it] = found->value();
+            ret[it->first] = found->value();
         } else {
-            ret[*it] = std::make_shared<CursorInfo>();
+            ret[it->first] = std::make_shared<CursorInfo>();
             // we need this one for inclusion directives which target a
             // non-existing CursorInfo
         }
