@@ -1330,10 +1330,10 @@ String Project::sync()
     const double averageJobTime = timerElapsed / mIndexData.size();
     const String msg = String::format<1024>("Jobs took %.2fs, %sdirtying took %.2fs, "
                                             "syncing took %.2fs, saving took %.2fs. We're using %lldmb of memory. "
-                                            "%d symbols, %d symbolNames", timerElapsed,
+                                            "%d symbols, %d targets, %d references, %d symbolNames", timerElapsed,
                                             mIndexData.size() > 1 ? String::format("(avg %.2fs), ", averageJobTime).constData() : "",
                                             dirtyTime / 1000.0, syncTime / 1000.0, saveTime / 1000.0, MemoryMonitor::usage() / (1024 * 1024),
-                                            symbols, symbolNames);
+                                            symbols, targets, references, symbolNames);
     mIndexData.clear();
     mTimer.start();
     return msg;
