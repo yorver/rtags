@@ -805,14 +805,15 @@ std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor
     const Location reffedLoc = createLocation(ref);
     if (!reffedLoc.isValid()) {
         if (kind == CXCursor_ObjCMessageExpr) {
-            mData->pendingReferenceMap[RTags::eatString(clang_getCursorUSR(clang_getCanonicalCursor(ref)))].insert(location);
+            auto &r = mData->pendingReferenceMap[RTags::eatString(clang_getCursorUSR(clang_getCanonicalCursor(ref)))][location];
+            r = CursorInfo::createTargetsValue(kind, clang_isCursorDefinition(cursor));
             // insert it, we'll hook up the target and references later
             handleCursor(cursor, kind, location);
         }
         return std::shared_ptr<CursorInfo>();
     }
 
-    std::shared_ptr<CursorInfo> &refInfo = mData->symbols[reffedLoc];
+    std::shared_ptr<CursorInfo> refInfo = mData->symbols.value(reffedLoc);
     assert(!refInfo || refInfo->symbolLength);
     uint16_t refTargetValue;
     if (refInfo) {
@@ -1059,7 +1060,7 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
     // JavaScriptCore for an example.
     const String usr = RTags::eatString(clang_getCursorUSR(clang_getCanonicalCursor(cursor)));
     if (!usr.isEmpty())
-        mData->usrs[usr].insert(location);
+        mData->usrs[usr][location] = CursorInfo::createTargetsValue(kind, info->definition);
 
     switch (info->kind) {
     case CXCursor_Constructor:

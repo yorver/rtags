@@ -42,10 +42,10 @@ public:
         kind = CXCursor_FirstInvalid;
         type = CXType_Invalid;
         enumValue = 0;
-        targets.clear();
-        references.clear();
         symbolName.clear();
 #ifndef RTAGS_RP
+        targets.clear();
+        references.clear();
         project.reset();
         location.clear();
 #endif
@@ -109,7 +109,7 @@ public:
 
     bool isEmpty() const
     {
-        return !symbolLength && targets.isEmpty() && references.isEmpty();
+        return !symbolLength;
     }
 
     template <typename T>
@@ -131,8 +131,10 @@ public:
         bool definition;
         int64_t enumValue; // only used if type == CXCursor_EnumConstantDecl
     };
+#ifndef RTAGS_RP
     Set<Location> references;
     Map<Location, uint16_t> targets;
+#endif
     int startLine, startColumn, endLine, endColumn;
 
 
@@ -156,8 +158,10 @@ private:
 
 template <> inline Serializer &operator<<(Serializer &s, const CursorInfo &t)
 {
+#ifndef RTAGS_RP
     assert(t.references.isEmpty());
     assert(t.targets.isEmpty());
+#endif
     s << t.symbolLength << t.symbolName << static_cast<int>(t.kind) << static_cast<int>(t.type)
       << t.enumValue << t.startLine << t.startColumn << t.endLine << t.endColumn;
     return s;

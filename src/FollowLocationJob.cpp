@@ -48,8 +48,9 @@ int FollowLocationJob::execute()
     } else {
         std::shared_ptr<CursorInfo> target = cursorInfo->bestTarget();
 
-        if (target)
+        if (target) {
             targets[target->location] = target;
+        }
     }
     int ret = 1;
     for (const auto &t : targets) {

@@ -132,9 +132,7 @@ std::shared_ptr<CursorInfo> CursorInfo::findCursorInfo(const std::shared_ptr<Pro
     auto it = symbols->lower_bound(location);
     if (it->isValid()) {
         if (it->key() == location) {
-            auto ret = it->value()->copy();
-            ret->project = project;
-            ret->location = location;
+            auto ret = it->value()->populate(location, project);
             if (iterator)
                 *iterator = std::move(it);
             return ret;
@@ -157,9 +155,7 @@ std::shared_ptr<CursorInfo> CursorInfo::findCursorInfo(const std::shared_ptr<Pro
     if (it->key().fileId() == location.fileId() && location.line() == it->key().line()) {
         const int off = location.column() - it->key().column();
         if (it->value()->symbolLength > off) {
-            auto ret = it->value()->copy();
-            ret->project = project;
-            ret->location = location;
+            auto ret = it->value()->populate(location, project);
             if (iterator)
                 *iterator = std::move(it);
             return ret;

@@ -60,7 +60,7 @@ public:
     SymbolMapMemory symbols;
     SymbolNameMapMemory symbolNames;
     DependencyMapMemory dependencies;
-    PendingReferenceMapMemory pendingReferenceMap;
+    UsrMapMemory pendingReferenceMap;
     ReferencesMapMemory references;
     TargetsMapMemory targets;
     UsrMapMemory usrs;

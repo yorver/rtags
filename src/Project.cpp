@@ -685,6 +685,30 @@ static inline int uniteSet(const Set<T> &original, const Set<T> &newValues, Set<
     return ret;
 }
 
+template <typename T, typename K>
+static inline int uniteMap(const Map<T, K> &original, const Map<T, K> &newValues, Map<T, K> &result)
+{
+    assert(!newValues.isEmpty());
+    if (original.isEmpty()) {
+        result = newValues;
+        return newValues.size();
+    }
+
+    int ret = 0;
+    for (const auto &v : newValues) {
+        if (ret) {
+            if (result.insert(v.first, v.second))
+                ++ret;
+        } else if (!original.contains(v.first)) {
+            result = original;
+            result[v.first] = v.second;
+            assert(!ret);
+            ++ret;
+        }
+    }
+    return ret;
+}
+
 void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles)
 {
     StopWatch timer;
@@ -841,83 +865,49 @@ static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, const
 }
 
 
-static inline void joinCursors(SymbolMapMemory &symbols, const Set<Location> &locations)
+static inline void joinCursors(TargetsMapMemory &targets, const Map<Location, uint16_t> &locations)
 {
-    for (auto it = locations.begin(); it != locations.end(); ++it) {
-        const auto c = symbols.find(*it);
-        if (c != symbols.constEnd()) {
-            std::shared_ptr<CursorInfo> &cursorInfo = c->second;
-            for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
-                if (innerIt != it) {
-                    uint16_t kind = CXCursor_FirstInvalid;
-                    auto found = symbols.find(*innerIt);
-                    if (found != symbols.end())
-                        kind = found->second->kind;
-                    cursorInfo->targets[*innerIt] = kind;
-                }
+    for (const auto &location : locations) {
+        Map<Location, uint16_t> &t = targets[location.first];
+        for (const auto &innerLoc : locations) {
+            if (location.first != innerLoc.first) {
+                t[innerLoc.first] = innerLoc.second;
             }
             // ### this is filthy, we could likely think of something better
         }
     }
 }
 
-static inline void joinCursors(const std::shared_ptr<SymbolMap> &symbols, const Set<Location> &locations, const SymbolMapMemory &symbolsMemory)
-{
-    for (auto it = locations.begin(); it != locations.end(); ++it) {
-        auto c = symbols->find(*it);
-        if (c->isValid()) {
-            std::shared_ptr<CursorInfo> cursorInfo = c->value();
-            bool changed = false;
-            assert(cursorInfo);
-            for (auto innerIt = locations.begin(); innerIt != locations.end(); ++innerIt) {
-                if (innerIt != it) {
-                    uint16_t kind = CXCursor_FirstInvalid;
-                    auto found = symbols->find(*innerIt);
-                    if (found->isValid())
-                        kind = found->value()->kind;
-                    if (cursorInfo->targets.value(*innerIt) != kind) {
-                        cursorInfo->targets[*innerIt] = kind;
-                        changed = true;
-                    }
-                }
-            }
-            if (changed) {
-                c->setValue(cursorInfo);
-            }
-            // ### this is filthy, we could likely think of something better
-        }
-    }
-}
-
-static inline void writeUsr(const Hash<String, Set<Location> > &usr,
+static inline void writeUsr(const UsrMapMemory &usr,
                             const std::shared_ptr<UsrMap> &current,
-                            SymbolMapMemory &symbolsMemory,
-                            const std::shared_ptr<SymbolMap> &symbols)
+                            TargetsMapMemory &targets)
 {
     // error() << "Writing usr" << usr.size();
     for (const auto &it : usr) {
         // error() << "usr" << it.first << it.second;
-        if (it.second.size() > 1)
-            joinCursors(symbolsMemory, it.second);
-
         auto cur = current->find(it.first);
         if (!cur->isValid()) {
             current->set(it.first, it.second);
+            if (it.second.size() > 1)
+                joinCursors(targets, it.second);
         } else {
-            Set<Location> merged;
-            if (uniteSet(cur->value(), it.second, merged)) {
+            Map<Location, uint16_t> merged;
+            if (uniteMap(cur->value(), it.second, merged)) {
                 cur->setValue(merged);
-                if (merged.size() > 1) {
-                    joinCursors(symbols, merged, symbolsMemory);
-                }
+                if (merged.size() > 1)
+                    joinCursors(targets, merged);
             }
         }
     }
 }
 
-static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &symbols, const std::shared_ptr<UsrMap> &usrs, const Hash<String, Set<Location> > &refs)
+static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &symbols,
+                                            const std::shared_ptr<UsrMap> &usrs,
+                                            const UsrMapMemory &pendingRefs,
+                                            TargetsMapMemory &allTargets,
+                                            ReferencesMapMemory &allReferences)
 {
-    for (const auto &ref : refs) {
+    for (const auto &ref : pendingRefs) {
         assert(!ref.second.isEmpty());
         // find the declaration
         List<String> refUsrs;
@@ -935,21 +925,20 @@ static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &sy
         for (const String &refUsr : refUsrs) {
             const auto usr = usrs->find(refUsr);
             if (usr->isValid()) {
-                for (const Location &usrLoc : usr->value()) {
-                    auto symbol = symbols->value(usrLoc);
+                for (const auto &usrLoc : usr->value()) {
+                    auto symbol = symbols->value(usrLoc.first);
                     assert(symbol);
                     if (RTags::isCursor(symbol->kind))
-                        targets[usrLoc] = symbol;
+                        targets[usrLoc.first] = symbol;
                 }
             }
         }
         if (!targets.isEmpty()) {
             for (const auto &r : ref.second) {
-                auto referenceCursor = (*symbols)[r];
-                assert(referenceCursor);
+                Map<Location, uint16_t> &subTargets = allTargets[r.first];
                 for (const auto &t : targets) {
-                    referenceCursor->targets[t.first] = t.second->kind;
-                    t.second->references.insert(r);
+                    subTargets[t.first] = t.second->kind;
+                    allReferences[t.first].insert(r.first);
                 }
             }
         }
@@ -1273,7 +1262,7 @@ String Project::sync()
     const int dirtyTime = sw.restart();
 
     Set<uint32_t> newFiles;
-    List<Hash<String, Set<Location> > *> pendingReferences;
+    List<const UsrMapMemory *> pendingReferences;
     int symbols = 0;
     int symbolNames = 0;
     int references = 0;
@@ -1290,7 +1279,7 @@ String Project::sync()
         const std::shared_ptr<IndexData> &data = it->second;
         addDependencies(data->dependencies, newFiles);
         addFixIts(data->dependencies, data->fixIts);
-        writeUsr(data->usrs, mUsr, data->symbols, mSymbols);
+        writeUsr(data->usrs, mUsr, allTargets);
         symbols += writeSymbols(data->symbols, mSymbols);
         symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
         allReferences.unite(data->references);
@@ -1299,10 +1288,10 @@ String Project::sync()
         if (!data->pendingReferenceMap.isEmpty())
             pendingReferences.append(&data->pendingReferenceMap);
         if (++it == mIndexData.end()) {
+            for (const UsrMapMemory *map : pendingReferences)
+                resolvePendingReferences(mSymbols, mUsr, *map, allTargets, allReferences);
             references = writeReferencesOrTargets(allReferences, mReferences);
             targets = writeReferencesOrTargets(allTargets, mTargets);
-            for (const Hash<String, Set<Location> > *map : pendingReferences)
-                resolvePendingReferences(mSymbols, mUsr, *map);
             break;
         }
     }

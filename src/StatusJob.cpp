@@ -145,6 +145,45 @@ int StatusJob::execute()
         }
     }
 
+    if (query.isEmpty() || !strcasecmp(query.constData(), "references")) {
+        matched = true;
+        const std::shared_ptr<ReferencesMap> map = proj->references();
+        write(delimiter);
+        write("references");
+        write(delimiter);
+        for (auto it = map->createIterator(); it->isValid(); it->next()) {
+            write(it->key());
+            const Set<Location> &locations = it->value();
+            for (Set<Location>::const_iterator lit = locations.begin(); lit != locations.end(); ++lit) {
+                const Location &loc = *lit;
+                write<1024>("    %s", loc.key().constData());
+            }
+            if (isAborted())
+                return 1;
+        }
+    }
+
+    if (query.isEmpty() || !strcasecmp(query.constData(), "targets")) {
+        matched = true;
+        const std::shared_ptr<TargetsMap> map = proj->targets();
+        write(delimiter);
+        write("targets");
+        write(delimiter);
+        for (auto it = map->createIterator(); it->isValid(); it->next()) {
+            write(it->key());
+            const Map<Location, uint16_t> &locations = it->value();
+            for (auto lit = locations.begin(); lit != locations.end(); ++lit) {
+                const Location &loc = lit->first;
+                write<1024>("    %s (%d/%d/%d)", loc.key(keyFlags()).constData(),
+                            CursorInfo::targetsValueKind(lit->second),
+                            CursorInfo::targetsValueIsDefinition(lit->second),
+                            CursorInfo::targetRank(CursorInfo::targetsValueKind(lit->second)));
+            }
+            if (isAborted())
+                return 1;
+        }
+    }
+
     if (query.isEmpty() || !strcasecmp(query.constData(), "sources")) {
         matched = true;
         const std::shared_ptr<SourceMap> map = proj->sources();
