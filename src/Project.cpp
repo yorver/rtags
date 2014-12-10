@@ -964,7 +964,6 @@ static inline int writeSymbols(const SymbolMapMemory &symbols, const std::shared
 template <typename Memory, typename DB>
 static inline int writeReferencesOrTargets(const Memory &m, const std::shared_ptr<DB> &db)
 {
-    auto writeScope = db->createWriteScope(1024 * m.size());
     int ret = 0;
     const bool wasEmpty = db->isEmpty();
     for (const auto &val : m) {
@@ -1245,13 +1244,14 @@ String Project::sync()
         return String();
     }
 
-    if (!mDirtyFiles.isEmpty()) {
-        auto symbolsWriteScope = mSymbols->createWriteScope(1024);
-        auto referencesWriteScope = mReferences->createWriteScope(1024);
-        auto targetsWriteScope = mTargets->createWriteScope(1024);
-        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024);
-        auto usrScope = mUsr->createWriteScope(1024);
+    auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 1024);
+    auto referencesWriteScope = mReferences->createWriteScope(1024 * 1024);
+    auto targetsWriteScope = mTargets->createWriteScope(1024 * 1024);
+    auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 1024);
+    auto usrScope = mUsr->createWriteScope(1024 * 1024);
+    auto dependenciesScope = mDependencies->createWriteScope(1024 * 1024);
 
+    if (!mDirtyFiles.isEmpty()) {
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
         RTags::dirtyReferences(mReferences, mDirtyFiles);
         RTags::dirtyTargets(mTargets, mDirtyFiles);
@@ -1271,11 +1271,6 @@ String Project::sync()
     TargetsMapMemory allTargets;
     auto it = mIndexData.begin();
     while (true) {
-        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 256);
-        auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512);
-        auto usrScope = mUsr->createWriteScope(1024 * 32);
-        auto dependenciesScope = mDependencies->createWriteScope(1024 * 32);
-
         const std::shared_ptr<IndexData> &data = it->second;
         addDependencies(data->dependencies, newFiles);
         addFixIts(data->dependencies, data->fixIts);
