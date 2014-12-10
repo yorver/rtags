@@ -44,7 +44,7 @@ public:
         CursorInfo::serialize(serializer, mData->symbols);
         serializer << mData->symbolNames << mData->dependencies
                    << mData->pendingReferenceMap << mData->references
-                   << mData->usrMap << mData->message << mData->fixIts
+                   << mData->targets << mData->usrs << mData->message << mData->fixIts
                    << mData->xmlDiagnostics << mData->visited << mData->id;
     }
     void decode(Deserializer &deserializer)
@@ -57,7 +57,7 @@ public:
         CursorInfo::deserialize(deserializer, mData->symbols);
         deserializer >> mData->symbolNames >> mData->dependencies
                      >> mData->pendingReferenceMap >> mData->references
-                     >> mData->usrMap >> mData->message >> mData->fixIts
+                     >> mData->targets >> mData->usrs >> mData->message >> mData->fixIts
                      >> mData->xmlDiagnostics >> mData->visited >> mData->id;
     }
     std::shared_ptr<IndexData> data() const { return mData; }

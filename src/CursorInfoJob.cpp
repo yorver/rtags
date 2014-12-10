@@ -27,18 +27,16 @@ CursorInfoJob::CursorInfoJob(const Location &loc, const std::shared_ptr<QueryMes
 
 int CursorInfoJob::execute()
 {
-    std::shared_ptr<SymbolMap> map = project()->symbols();
-    if (map->isEmpty())
+    std::unique_ptr<SymbolMap::Iterator> it;
+    if (!CursorInfo::findCursorInfo(project(), location, &it))
         return 1;
-    auto it = CursorInfo::findCursorInfo(map, location);
 
     unsigned ciFlags = 0;
     if (!(queryFlags() & QueryMessage::CursorInfoIncludeTargets))
         ciFlags |= CursorInfo::IgnoreTargets;
     if (!(queryFlags() & QueryMessage::CursorInfoIncludeReferences))
         ciFlags |= CursorInfo::IgnoreReferences;
-    if (!it->isValid())
-        return 1;
+
     write(it->key());
     write(it->value(), ciFlags);
     if (queryFlags() & QueryMessage::CursorInfoIncludeParents) {

@@ -33,7 +33,7 @@ class Database;
 class Project;
 namespace RTags {
 
-enum { DatabaseVersion = 52 };
+enum { DatabaseVersion = 1025 };
 enum { ASTManifestVersion = 1 };
 
 enum {
@@ -58,7 +58,10 @@ void initMessages();
 class CursorInfo;
 typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
 typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMapMemory;
-typedef Map<Location, Location> ReferenceMap;
+typedef Map<Location, Set<Location> > ReferencesMapMemory;
+typedef DB<Location, Set<Location> > ReferencesMap;
+typedef Map<Location, Map<Location, uint16_t> > TargetsMapMemory;
+typedef DB<Location, Map<Location, uint16_t> > TargetsMap;
 typedef DB<String, Set<Location> > UsrMap;
 typedef Hash<String, Set<Location> > UsrMapMemory;
 typedef Hash<String, Set<Location> > PendingReferenceMapMemory;
@@ -75,6 +78,8 @@ typedef Hash<Path, String> UnsavedFiles;
 namespace RTags {
 void dirtySymbolNames(const std::shared_ptr<SymbolNameMap> &map, const Set<uint32_t> &dirty);
 void dirtySymbols(const std::shared_ptr<SymbolMap> &map, const Set<uint32_t> &dirty);
+void dirtyReferences(const std::shared_ptr<ReferencesMap> &map, const Set<uint32_t> &dirty);
+void dirtyTargets(const std::shared_ptr<TargetsMap> &map, const Set<uint32_t> &dirty);
 void dirtyUsr(const std::shared_ptr<UsrMap> &map, const Set<uint32_t> &dirty);
 
 template <typename Container, typename Value>

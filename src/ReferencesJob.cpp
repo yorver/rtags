@@ -42,23 +42,18 @@ int ReferencesJob::execute()
             const std::shared_ptr<SymbolMap> map = proj->symbols();
 
             for (Set<Location>::const_iterator it = locations.begin(); it != locations.end(); ++it) {
-                Location pos;
-                auto found = CursorInfo::findCursorInfo(map, *it);
-                if (!found->isValid())
-                    continue;
-                pos = found->key();
-                if (startLocation.isNull())
-                    startLocation = pos;
-                std::shared_ptr<CursorInfo> cursorInfo = found->value();
+                auto cursorInfo = CursorInfo::findCursorInfo(proj, *it);
                 if (!cursorInfo)
                     continue;
+                if (startLocation.isNull())
+                    startLocation = cursorInfo->location;
                 if (RTags::isReference(cursorInfo->kind)) {
-                    cursorInfo = cursorInfo->bestTarget(map, &pos);
+                    cursorInfo = cursorInfo->bestTarget();
                     if (!cursorInfo)
                         continue;
                 }
                 if (queryFlags() & QueryMessage::AllReferences) {
-                    const SymbolMapMemory all = cursorInfo->allReferences(pos, map);
+                    const SymbolMapMemory all = cursorInfo->allReferences();
 
                     bool classRename = false;
                     switch (cursorInfo->kind) {
@@ -81,7 +76,7 @@ int ReferencesJob::execute()
                                 FoundReferences = 0x4
                             };
                             unsigned state = 0;
-                            const auto targets = a->second->targetInfos(map);
+                            const auto targets = a->second->targetInfos();
                             for (auto t = targets.begin(); t != targets.end(); ++t) {
                                 if (t->second->kind != a->second->kind)
                                     state |= FoundReferences;

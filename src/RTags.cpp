@@ -35,29 +35,29 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <mach-o/dyld.h>
 #endif
 
+static inline uint32_t fileId(const Location &location) { return location.fileId(); }
+static inline uint32_t fileId(const String &) { return 0; }
 template <typename T>
-static void dirtySymbolNamesOrUsr(T &map, const Set<uint32_t> &dirty)
+static void dirtyLocations(T &map, const Set<uint32_t> &dirty)
 {
     auto it = map->createIterator();
     while (it->isValid()) {
-        Set<Location> locations = it->value();
-        bool locationsDirty = false;
-        Set<Location>::iterator i = locations.begin();
-        while (i != locations.end()) {
-            if (dirty.contains(i->fileId())) {
-                locationsDirty = true;
-                locations.erase(i++);
-            } else {
-                ++i;
-            }
-        }
-        if (locations.isEmpty()) {
+        const uint32_t keyFileId = fileId(it->key());
+        if (keyFileId && dirty.contains(keyFileId)) {
             it->erase();
         } else {
-            if (locationsDirty) {
+            auto locations = it->value();
+            const int removed = locations.remove([&dirty](const Location &location) {
+                    return dirty.contains(location.fileId());
+                });
+            if (!removed) {
+                it->next();
+            } else if (locations.isEmpty()) {
+                it->erase();
+            } else {
                 it->setValue(locations);
+                it->next();
             }
-            it->next();
         }
     }
 }
@@ -66,7 +66,7 @@ namespace RTags {
 
 void dirtySymbolNames(const std::shared_ptr<SymbolNameMap> &map, const Set<uint32_t> &dirty)
 {
-    dirtySymbolNamesOrUsr(map, dirty);
+    dirtyLocations(map, dirty);
 }
 
 void dirtySymbols(const std::shared_ptr<SymbolMap> &map, const Set<uint32_t> &dirty)
@@ -76,16 +76,24 @@ void dirtySymbols(const std::shared_ptr<SymbolMap> &map, const Set<uint32_t> &di
         if (dirty.contains(it->key().fileId())) {
             it->erase();
         } else {
-            if (it->value()->dirty(dirty)) {
-                it->setValue(it->value());
-            }
             it->next();
         }
     }
 }
+
+void dirtyReferences(const std::shared_ptr<ReferencesMap> &map, const Set<uint32_t> &dirty)
+{
+    dirtyLocations(map, dirty);
+}
+
+void dirtyTargets(const std::shared_ptr<TargetsMap> &map, const Set<uint32_t> &dirty)
+{
+    dirtyLocations(map, dirty);
+}
+
 void dirtyUsr(const std::shared_ptr<UsrMap> &map, const Set<uint32_t> &dirty)
 {
-    dirtySymbolNamesOrUsr(map, dirty);
+    dirtyLocations(map, dirty);
 }
 
 Path findAncestor(Path path, const char *fn, unsigned flags)

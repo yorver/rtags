@@ -284,6 +284,8 @@ bool Project::load(FileManagerMode mode)
         || !openDB(mUsr, mDBPath, "usr")
         || !openDB(mDependencies, mDBPath, "dependencies")
         || !openDB(mSources, mDBPath, "sources")
+        || !openDB(mReferences, mDBPath, "references")
+        || !openDB(mTargets, mDBPath, "targets")
         || !openDB(mGeneral, mDBPath, "db")) {
         return false;
     }
@@ -764,7 +766,15 @@ int Project::remove(const Match &match)
         }
     }
     if (count) {
+        auto symbolsWriteScope = mSymbols->createWriteScope(1024);
+        auto referencesWriteScope = mReferences->createWriteScope(1024);
+        auto targetsWriteScope = mTargets->createWriteScope(1024);
+        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024);
+        auto usrScope = mUsr->createWriteScope(1024);
+
         RTags::dirtySymbols(mSymbols, dirty);
+        RTags::dirtyReferences(mReferences, dirty);
+        RTags::dirtyTargets(mTargets, dirty);
         RTags::dirtySymbolNames(mSymbolNames, dirty);
         RTags::dirtyUsr(mUsr, dirty);
     }
@@ -791,7 +801,15 @@ int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
 
     if (!toIndex.size() && !dirtyFiles.isEmpty()) {
         // this is for the case where we've removed a file
+        auto symbolsWriteScope = mSymbols->createWriteScope(1024);
+        auto referencesWriteScope = mReferences->createWriteScope(1024);
+        auto targetsWriteScope = mTargets->createWriteScope(1024);
+        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024);
+        auto usrScope = mUsr->createWriteScope(1024);
+
         RTags::dirtySymbols(mSymbols, dirtyFiles);
+        RTags::dirtyReferences(mReferences, dirtyFiles);
+        RTags::dirtyTargets(mTargets, dirtyFiles);
         RTags::dirtySymbolNames(mSymbolNames, dirtyFiles);
         RTags::dirtyUsr(mUsr, dirtyFiles);
     } else {
@@ -945,25 +963,44 @@ static inline int writeSymbols(const SymbolMapMemory &symbols, const std::shared
     auto it = symbols.begin();
     const auto end = symbols.end();
     while (it != end) {
-        if (wasEmpty) {
+        if (wasEmpty || !current->find(it->first)->isValid()) {
             current->set(it->first, it->second);
             ++ret;
-        } else {
-            auto cur = current->find(it->first);
-            if (!cur->isValid()) {
-                current->set(it->first, it->second);
-                ++ret;
-            } else {
-                if (cur->value()->unite(it->second)) {
-                    cur->setValue(cur->value());
-                    // hm...
-                    ++ret;
-                }
-            }
         }
         ++it;
     }
     return ret;
+}
+
+template <typename Memory, typename DB>
+static inline int writeReferencesOrTargets(const Memory &m, const std::shared_ptr<DB> &db)
+{
+    auto writeScope = db->createWriteScope(1024 * m.size());
+    int ret = 0;
+    const bool wasEmpty = db->isEmpty();
+    for (const auto &val : m) {
+        if (wasEmpty) {
+            db->set(val.first, val.second);
+            ++ret;
+            continue;
+        }
+
+        auto cur = db->find(val.first);
+        if (!cur->isValid()) {
+            db->set(val.first, val.second);
+            ++ret;
+        } else {
+            auto vals = cur->value();
+            int count = 0;
+            vals.unite(val.second, &count);
+            if (count) {
+                db->set(val.first, val.second);
+                ++ret;
+            }
+        }
+    }
+    return ret;
+
 }
 
 bool Project::isIndexed(uint32_t fileId) const
@@ -1220,11 +1257,15 @@ String Project::sync()
     }
 
     if (!mDirtyFiles.isEmpty()) {
-        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024);
         auto symbolsWriteScope = mSymbols->createWriteScope(1024);
+        auto referencesWriteScope = mReferences->createWriteScope(1024);
+        auto targetsWriteScope = mTargets->createWriteScope(1024);
+        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024);
         auto usrScope = mUsr->createWriteScope(1024);
-        auto dependenciesScope = mDependencies->createWriteScope(1024);
+
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
+        RTags::dirtyReferences(mReferences, mDirtyFiles);
+        RTags::dirtyTargets(mTargets, mDirtyFiles);
         RTags::dirtySymbolNames(mSymbolNames, mDirtyFiles);
         RTags::dirtyUsr(mUsr, mDirtyFiles);
         mDirtyFiles.clear();
@@ -1235,7 +1276,12 @@ String Project::sync()
     List<Hash<String, Set<Location> > *> pendingReferences;
     int symbols = 0;
     int symbolNames = 0;
-    for (auto it = mIndexData.begin(); it != mIndexData.end(); ++it) {
+    int references = 0;
+    int targets = 0;
+    ReferencesMapMemory allReferences;
+    TargetsMapMemory allTargets;
+    auto it = mIndexData.begin();
+    while (true) {
         auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 256);
         auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512);
         auto usrScope = mUsr->createWriteScope(1024 * 32);
@@ -1244,18 +1290,21 @@ String Project::sync()
         const std::shared_ptr<IndexData> &data = it->second;
         addDependencies(data->dependencies, newFiles);
         addFixIts(data->dependencies, data->fixIts);
-        if (!data->pendingReferenceMap.isEmpty())
-            pendingReferences.append(&data->pendingReferenceMap);
-        writeUsr(data->usrMap, mUsr, data->symbols, mSymbols);
+        writeUsr(data->usrs, mUsr, data->symbols, mSymbols);
         symbols += writeSymbols(data->symbols, mSymbols);
         symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
-    }
+        allReferences.unite(data->references);
+        allTargets.unite(data->targets);
 
-    {
-        auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 512);
-        auto usrScope = mUsr->createWriteScope(1024 * 32);
-        for (const Hash<String, Set<Location> > *map : pendingReferences)
-            resolvePendingReferences(mSymbols, mUsr, *map);
+        if (!data->pendingReferenceMap.isEmpty())
+            pendingReferences.append(&data->pendingReferenceMap);
+        if (++it == mIndexData.end()) {
+            references = writeReferencesOrTargets(allReferences, mReferences);
+            targets = writeReferencesOrTargets(allTargets, mTargets);
+            for (const Hash<String, Set<Location> > *map : pendingReferences)
+                resolvePendingReferences(mSymbols, mUsr, *map);
+            break;
+        }
     }
 
     for (auto it = newFiles.constBegin(); it != newFiles.constEnd(); ++it) {

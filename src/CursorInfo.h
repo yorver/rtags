@@ -22,11 +22,12 @@ along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 #include <rct/Log.h>
 #include <rct/List.h>
 #include <clang-c/Index.h>
+#include "RTags.h"
 #include <rct/DB.h>
 
-class CursorInfo;
-typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap; // duplicated from RTags.h
-typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMapMemory; // duplicated from RTags.h
+// class CursorInfo;
+// typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap; // duplicated from RTags.h
+// typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMapMemory; // duplicated from RTags.h
 class CursorInfo
 {
 public:
@@ -46,13 +47,14 @@ public:
         symbolName.clear();
     }
 
+    // these are used for the values in TargetsMapMemory/TargetsMap
+    enum { DefinitionBit = 0x1000 };
+    static CXCursorKind targetsValueKind(uint16_t val) { return static_cast<CXCursorKind>(val & ~DefinitionBit); }
+    static bool targetsValueIsDefinition(uint16_t val) { return val & DefinitionBit; }
+    static uint16_t createTargetsValue(CXCursorKind kind, bool definition) { return (kind | DefinitionBit); }
+
     String kindSpelling() const { return kindSpelling(kind); }
     static String kindSpelling(uint16_t kind);
-    bool dirty(const Set<uint32_t> &dirty)
-    {
-        auto match = [&dirty](const Location &loc) { return dirty.contains(loc.fileId()); };
-        return targets.remove(match) + references.remove(match);
-    }
 
     String displayName() const;
 
@@ -68,33 +70,18 @@ public:
         return isEmpty();
     }
 
-    std::shared_ptr<CursorInfo> bestTarget(const std::shared_ptr<SymbolMap> &map, Location *loc = 0) const;
-    std::shared_ptr<CursorInfo> bestTarget(const SymbolMapMemory &map, Location *loc = 0) const;
-    SymbolMapMemory targetInfos(const SymbolMapMemory &map) const;
-    SymbolMapMemory targetInfos(const std::shared_ptr<SymbolMap> &map) const;
-    SymbolMapMemory referenceInfos(const std::shared_ptr<SymbolMap> &map) const;
-    SymbolMapMemory callers(const Location &loc, const std::shared_ptr<SymbolMap> &map) const;
-    SymbolMapMemory allReferences(const Location &loc, const std::shared_ptr<SymbolMap> &map) const;
-    SymbolMapMemory virtuals(const Location &loc, const std::shared_ptr<SymbolMap> &map) const;
+    std::shared_ptr<CursorInfo> bestTarget() const;
+    SymbolMapMemory targetInfos() const;
+    SymbolMapMemory referenceInfos() const;
+    SymbolMapMemory callers() const;
+    SymbolMapMemory allReferences() const;
+    SymbolMapMemory virtuals() const;
 
-    static SymbolMapMemory::const_iterator findCursorInfo(const SymbolMapMemory &map, const Location &location)
-    {
-        auto it = map.lower_bound(location);
-        if (it != map.end() && it->first == location) {
-            return it;
-        } else if (it != map.begin()) {
-            --it;
-            if (it->first.fileId() == location.fileId() && location.line() == it->first.line()) {
-                const int off = location.column() - it->first.column();
-                if (it->second->symbolLength > off)
-                    return it;
-            }
-        }
-        return map.end();
-    }
-
-    static std::unique_ptr<SymbolMap::Iterator> findCursorInfo(const std::shared_ptr<SymbolMap> &map, const Location &location);
+    static std::shared_ptr<CursorInfo> findCursorInfo(const std::shared_ptr<Project> &project,
+                                                      const Location &location,
+                                                      std::unique_ptr<SymbolMap::Iterator> *iterator = 0);
     std::shared_ptr<CursorInfo> copy() const;
+    std::shared_ptr<CursorInfo> populate(const Location &location, const std::shared_ptr<Project> &project) const;
 
     bool isClass() const
     {
@@ -119,50 +106,6 @@ public:
         return !symbolLength && targets.isEmpty() && references.isEmpty();
     }
 
-    bool unite(const std::shared_ptr<CursorInfo> &other)
-    {
-        bool changed = false;
-        if (targets.isEmpty() && !other->targets.isEmpty()) {
-            targets = other->targets;
-            changed = true;
-        } else if (!other->targets.isEmpty()) {
-            int count = 0;
-            targets.unite(other->targets, &count);
-            if (count)
-                changed = true;
-        }
-
-        if (startLine == -1 && other->startLine != -1) {
-            startLine = other->startLine;
-            startColumn = other->startColumn;
-            endLine = other->endLine;
-            endColumn = other->endColumn;
-            changed = true;
-        }
-
-        if (!symbolLength && other->symbolLength) {
-            symbolLength = other->symbolLength;
-            kind = other->kind;
-            enumValue = other->enumValue;
-            type = other->type;
-            symbolName = other->symbolName;
-            changed = true;
-        }
-        const int oldSize = references.size();
-        if (!oldSize) {
-            references = other->references;
-            if (!references.isEmpty())
-                changed = true;
-        } else {
-            int inserted = 0;
-            references.unite(other->references, &inserted);
-            if (inserted)
-                changed = true;
-        }
-
-        return changed;
-    }
-
     template <typename T>
     static inline void serialize(T &s, const SymbolMapMemory &t);
     template <typename T>
@@ -185,30 +128,34 @@ public:
     Set<Location> references;
     Map<Location, uint16_t> targets;
     int startLine, startColumn, endLine, endColumn;
+
+    // Not stored in DB
+    Location location;
 private:
     enum Mode {
         ClassRefs,
         VirtualRefs,
         NormalRefs
     };
-    static void allImpl(const std::shared_ptr<SymbolMap> &map, const Location &loc, const std::shared_ptr<CursorInfo> &info, SymbolMapMemory &out, Mode mode, unsigned kind);
-    inline std::shared_ptr<CursorInfo> bestTargetImpl(const SymbolMapMemory &targets, Location *loc) const;
+    std::shared_ptr<Project> project;
+
+    static void allImpl(const std::shared_ptr<CursorInfo> &info, SymbolMapMemory &out, Mode mode, unsigned kind);
     static bool isReference(unsigned int kind);
 };
 
 template <> inline Serializer &operator<<(Serializer &s, const CursorInfo &t)
 {
-    s << t.symbolLength << t.symbolName << static_cast<int>(t.kind)
-      << static_cast<int>(t.type) << t.enumValue << t.targets << t.references
-      << t.startLine << t.startColumn << t.endLine << t.endColumn;
+    assert(t.references.isEmpty());
+    assert(t.targets.isEmpty());
+    s << t.symbolLength << t.symbolName << static_cast<int>(t.kind) << static_cast<int>(t.type)
+      << t.enumValue << t.startLine << t.startColumn << t.endLine << t.endColumn;
     return s;
 }
 
 template <> inline Deserializer &operator>>(Deserializer &s, CursorInfo &t)
 {
     int kind, type;
-    s >> t.symbolLength >> t.symbolName >> kind >> type
-      >> t.enumValue >> t.targets >> t.references
+    s >> t.symbolLength >> t.symbolName >> kind >> type >> t.enumValue
       >> t.startLine >> t.startColumn >> t.endLine >> t.endColumn;
     t.kind = static_cast<CXCursorKind>(kind);
     t.type = static_cast<CXTypeKind>(type);
@@ -243,183 +190,6 @@ inline Log operator<<(Log log, const CursorInfo &info)
 {
     log << info.toString();
     return log;
-}
-
-inline SymbolMapMemory CursorInfo::allReferences(const Location &loc, const std::shared_ptr<SymbolMap> &map) const
-{
-    SymbolMapMemory ret;
-    Mode mode = NormalRefs;
-    switch (kind) {
-    case CXCursor_Constructor:
-    case CXCursor_Destructor:
-        mode = ClassRefs;
-        break;
-    case CXCursor_CXXMethod:
-        mode = VirtualRefs;
-        break;
-    default:
-        mode = isClass() ? ClassRefs : VirtualRefs;
-        break;
-    }
-
-    allImpl(map, loc, copy(), ret, mode, kind);
-    return ret;
-}
-
-inline SymbolMapMemory CursorInfo::virtuals(const Location &loc, const std::shared_ptr<SymbolMap> &map) const
-{
-    SymbolMapMemory ret;
-    ret[loc] = copy();
-    const SymbolMapMemory s = (kind == CXCursor_CXXMethod ? allReferences(loc, map) : targetInfos(map));
-    for (auto it = s.begin(); it != s.end(); ++it) {
-        if (it->second->kind == kind)
-            ret[it->first] = it->second;
-    }
-    return ret;
-}
-
-inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(const SymbolMapMemory &map, Location *loc) const
-{
-    const SymbolMapMemory targets = targetInfos(map);
-    return bestTargetImpl(targets, loc);
-}
-
-inline std::shared_ptr<CursorInfo> CursorInfo::bestTarget(const std::shared_ptr<SymbolMap> &map, Location *loc) const
-{
-    const SymbolMapMemory targets = targetInfos(map);
-    return bestTargetImpl(targets, loc);
-}
-
-inline std::shared_ptr<CursorInfo> CursorInfo::bestTargetImpl(const SymbolMapMemory &targets, Location *loc) const
-{
-    auto best = targets.end();
-    int bestRank = -1;
-    for (auto it = targets.begin(); it != targets.end(); ++it) {
-        const std::shared_ptr<CursorInfo> &ci = it->second;
-        const int r = CursorInfo::targetRank(static_cast<CXCursorKind>(ci->kind));
-        if (r > bestRank || (r == bestRank && ci->isDefinition())) {
-            bestRank = r;
-            best = it;
-        }
-    }
-    if (best != targets.end()) {
-        if (loc)
-            *loc = best->first;
-        return best->second;
-    }
-    return std::shared_ptr<CursorInfo>();
-}
-
-inline SymbolMapMemory CursorInfo::targetInfos(const SymbolMapMemory &map) const
-{
-    SymbolMapMemory ret;
-    for (auto it = targets.begin(); it != targets.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, it->first);
-        if (found != map.end()) {
-            ret[it->first] = found->second;
-        } else {
-            ret[it->first] = std::make_shared<CursorInfo>();
-            // we need this one for inclusion directives which target a
-            // non-existing CursorInfo
-        }
-    }
-    return ret;
-}
-
-inline SymbolMapMemory CursorInfo::targetInfos(const std::shared_ptr<SymbolMap> &map) const
-{
-    SymbolMapMemory ret;
-    for (auto it = targets.begin(); it != targets.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, it->first);
-        if (found->isValid()) {
-            ret[it->first] = found->value();
-        } else {
-            ret[it->first] = std::make_shared<CursorInfo>();
-            // we need this one for inclusion directives which target a
-            // non-existing CursorInfo
-        }
-    }
-    return ret;
-}
-
-inline SymbolMapMemory CursorInfo::referenceInfos(const std::shared_ptr<SymbolMap> &map) const
-{
-    SymbolMapMemory ret;
-    for (auto it = references.begin(); it != references.end(); ++it) {
-        auto found = CursorInfo::findCursorInfo(map, *it);
-        if (found->isValid())
-            ret[*it] = found->value();
-    }
-    return ret;
-}
-
-inline SymbolMapMemory CursorInfo::callers(const Location &loc, const std::shared_ptr<SymbolMap> &map) const
-{
-    SymbolMapMemory ret;
-    const SymbolMapMemory cursors = virtuals(loc, map);
-    const bool isClazz = isClass();
-    for (auto c = cursors.begin(); c != cursors.end(); ++c) {
-        for (auto it = c->second->references.begin(); it != c->second->references.end(); ++it) {
-            const auto found = CursorInfo::findCursorInfo(map, *it);
-            if (!found->isValid())
-                continue;
-            if (isClazz && found->value()->kind == CXCursor_CallExpr)
-                continue;
-            if (CursorInfo::isReference(found->value()->kind)) { // is this always right?
-                ret[*it] = found->value();
-            } else if (kind == CXCursor_Constructor && (found->value()->kind == CXCursor_VarDecl || found->value()->kind == CXCursor_FieldDecl)) {
-                ret[*it] = found->value();
-            }
-        }
-    }
-    return ret;
-}
-
-
-inline void CursorInfo::allImpl(const std::shared_ptr<SymbolMap> &map, const Location &loc, const std::shared_ptr<CursorInfo> &info,
-                                SymbolMapMemory &out, Mode mode, unsigned kind)
-{
-    if (out.contains(loc))
-        return;
-    out[loc] = info;
-    const SymbolMapMemory targets = info->targetInfos(map);
-    for (auto t = targets.begin(); t != targets.end(); ++t) {
-        bool ok = false;
-        switch (mode) {
-        case VirtualRefs:
-        case NormalRefs:
-            ok = (t->second->kind == kind);
-            break;
-        case ClassRefs:
-            ok = (t->second->isClass() || t->second->kind == CXCursor_Destructor || t->second->kind == CXCursor_Constructor);
-            break;
-        }
-        if (ok)
-            allImpl(map, t->first, t->second, out, mode, kind);
-    }
-    const SymbolMapMemory refs = info->referenceInfos(map);
-    for (auto r = refs.begin(); r != refs.end(); ++r) {
-        switch (mode) {
-        case NormalRefs:
-            out[r->first] = r->second;
-            break;
-        case VirtualRefs:
-            if (r->second->kind == kind) {
-                allImpl(map, r->first, r->second, out, mode, kind);
-            } else {
-                out[r->first] = r->second;
-            }
-            break;
-        case ClassRefs:
-            if (info->isClass()) // for class/struct we want the references inserted directly regardless and also recursed
-                out[r->first] = r->second;
-            if (r->second->isClass()
-                || r->second->kind == CXCursor_Destructor
-                || r->second->kind == CXCursor_Constructor) { // if is a constructor/destructor/class reference we want to recurse it
-                allImpl(map, r->first, r->second, out, mode, kind);
-            }
-        }
-    }
 }
 
 #endif

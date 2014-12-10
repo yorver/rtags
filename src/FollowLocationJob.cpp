@@ -26,31 +26,30 @@ FollowLocationJob::FollowLocationJob(const Location &loc, const std::shared_ptr<
 
 int FollowLocationJob::execute()
 {
-    const std::shared_ptr<SymbolMap> map = project()->symbols();
-    auto it = CursorInfo::findCursorInfo(map, location);
+    auto cursorInfo = CursorInfo::findCursorInfo(project(), location);
 
-    if (!it->isValid()) {
+    if (!cursorInfo) {
         return 1;
     }
 
-    const std::shared_ptr<CursorInfo> &cursorInfo = it->value();
-    if (cursorInfo && cursorInfo->isClass() && cursorInfo->isDefinition()) {
+    if (cursorInfo->isClass() && cursorInfo->isDefinition()) {
         return 2;
     }
 
     SymbolMapMemory targets;
     if (cursorInfo->kind == CXCursor_ObjCMessageExpr) {
+        auto symbols = project()->symbols();
         for (const auto &loc : cursorInfo->targets) {
-            const auto target = map->value(loc.first);
+            const auto target = symbols->value(loc.first);
             if (target)
                 targets[loc.first] = target;
 
         }
     } else {
-        Location loc;
-        std::shared_ptr<CursorInfo> target = cursorInfo->bestTarget(map, &loc);
-        if (!loc.isNull() && target)
-            targets[loc] = target;
+        std::shared_ptr<CursorInfo> target = cursorInfo->bestTarget();
+
+        if (target)
+            targets[target->location] = target;
     }
     int ret = 1;
     for (const auto &t : targets) {
@@ -67,7 +66,9 @@ int FollowLocationJob::execute()
                 case CXCursor_Destructor:
                 case CXCursor_Constructor:
                 case CXCursor_FunctionTemplate:
-                    target = target->bestTarget(map, &loc);
+                    target = target->bestTarget();
+                    if (target)
+                        loc = target->location;
                     break;
                 default:
                     break;
@@ -76,10 +77,9 @@ int FollowLocationJob::execute()
         }
         if (!loc.isNull()) {
             if (queryFlags() & QueryMessage::DeclarationOnly && target->isDefinition()) {
-                Location declLoc;
-                const std::shared_ptr<CursorInfo> decl = target->bestTarget(map, &declLoc);
-                if (!declLoc.isNull()) {
-                    write(declLoc);
+                const std::shared_ptr<CursorInfo> decl = target->bestTarget();
+                if (decl) {
+                    write(decl->location);
                     ret = 0;
                 }
             } else {

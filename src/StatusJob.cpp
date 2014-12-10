@@ -30,7 +30,7 @@ StatusJob::StatusJob(const std::shared_ptr<QueryMessage> &q, const std::shared_p
 int StatusJob::execute()
 {
     bool matched = false;
-    const char *alternatives = "fileids|watchedpaths|dependencies|symbols|symbollocations|symbolnames|sources|jobs|info|compilers";
+    const char *alternatives = "fileids|watchedpaths|dependencies|symbols|references|targets|symbollocations|symbolnames|sources|jobs|info|compilers";
 
     if (!strcasecmp(query.constData(), "fileids")) {
         matched = true;
@@ -118,7 +118,8 @@ int StatusJob::execute()
             write(loc);
             if (!symbollocations) {
                 const std::shared_ptr<CursorInfo> ci = it->value();
-                write(ci);
+                auto fixed = ci->populate(loc, proj);
+                write(fixed);
                 write("------------------------");
             }
             if (isAborted())

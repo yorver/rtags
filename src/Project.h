@@ -68,6 +68,8 @@ public:
     std::shared_ptr<UsrMap> usrs() const { return mUsr; }
     std::shared_ptr<SourceMap> sources() const { return mSources; }
     std::shared_ptr<DependencyMap> dependencies() const { return mDependencies; }
+    std::shared_ptr<TargetsMap> targets() const { return mTargets; }
+    std::shared_ptr<ReferencesMap> references() const { return mReferences; }
 
     Set<Location> locations(const String &symbolName, uint32_t fileId = 0) const;
     SymbolMapMemory symbols(uint32_t fileId) const;
@@ -136,6 +138,8 @@ private:
     mutable std::shared_ptr<SourceMap> mSources;
     mutable std::shared_ptr<SymbolMap> mSymbols;
     mutable std::shared_ptr<SymbolNameMap> mSymbolNames;
+    mutable std::shared_ptr<TargetsMap> mTargets;
+    mutable std::shared_ptr<ReferencesMap> mReferences;
     std::shared_ptr<UsrMap> mUsr;
     std::shared_ptr<FilesMap> mFiles;
     std::shared_ptr<DB<String, String> > mGeneral;
