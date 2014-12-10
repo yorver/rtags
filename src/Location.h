@@ -26,7 +26,7 @@
 #if defined(OS_Linux)
 #include <linux/limits.h>
 #endif
-#ifndef RTAGS_SINGLE_THREAD
+#ifndef RTAGS_RP
 #include <mutex>
 #define LOCK() const std::lock_guard<std::mutex> lock(sMutex)
 #else

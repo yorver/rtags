@@ -45,13 +45,17 @@ public:
         targets.clear();
         references.clear();
         symbolName.clear();
+#ifndef RTAGS_RP
+        project.reset();
+        location.clear();
+#endif
     }
 
     // these are used for the values in TargetsMapMemory/TargetsMap
     enum { DefinitionBit = 0x1000 };
     static CXCursorKind targetsValueKind(uint16_t val) { return static_cast<CXCursorKind>(val & ~DefinitionBit); }
     static bool targetsValueIsDefinition(uint16_t val) { return val & DefinitionBit; }
-    static uint16_t createTargetsValue(CXCursorKind kind, bool definition) { return (kind | DefinitionBit); }
+    static uint16_t createTargetsValue(CXCursorKind kind, bool definition) { return (kind | (definition ? DefinitionBit : 0)); }
 
     String kindSpelling() const { return kindSpelling(kind); }
     static String kindSpelling(uint16_t kind);
@@ -70,6 +74,7 @@ public:
         return isEmpty();
     }
 
+#ifndef RTAGS_RP
     std::shared_ptr<CursorInfo> bestTarget() const;
     SymbolMapMemory targetInfos() const;
     SymbolMapMemory referenceInfos() const;
@@ -82,6 +87,7 @@ public:
                                                       std::unique_ptr<SymbolMap::Iterator> *iterator = 0);
     std::shared_ptr<CursorInfo> copy() const;
     std::shared_ptr<CursorInfo> populate(const Location &location, const std::shared_ptr<Project> &project) const;
+#endif
 
     bool isClass() const
     {
@@ -129,9 +135,13 @@ public:
     Map<Location, uint16_t> targets;
     int startLine, startColumn, endLine, endColumn;
 
+
+#ifndef RTAGS_RP
     // Not stored in DB
     Location location;
+#endif
 private:
+#ifndef RTAGS_RP
     enum Mode {
         ClassRefs,
         VirtualRefs,
@@ -140,6 +150,7 @@ private:
     std::shared_ptr<Project> project;
 
     static void allImpl(const std::shared_ptr<CursorInfo> &info, SymbolMapMemory &out, Mode mode, unsigned kind);
+#endif
     static bool isReference(unsigned int kind);
 };
 

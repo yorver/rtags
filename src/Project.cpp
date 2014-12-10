@@ -1189,7 +1189,7 @@ List<RTags::SortedCursor> Project::sort(const Set<Location> &locations, unsigned
         if (found->isValid()) {
             node.isDefinition = found->value()->isDefinition();
             if (flags & Sort_DeclarationOnly && node.isDefinition) {
-                const std::shared_ptr<CursorInfo> decl = found->value()->bestTarget(mSymbols);
+                const std::shared_ptr<CursorInfo> decl = found->value()->bestTarget();
                 if (decl && !decl->isNull())
                     continue;
             }

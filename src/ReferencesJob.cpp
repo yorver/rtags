@@ -92,12 +92,12 @@ int ReferencesJob::execute()
                         }
                     }
                 } else if (queryFlags() & QueryMessage::FindVirtuals) {
-                    const auto virtuals = cursorInfo->virtuals(pos, map);
+                    const auto virtuals = cursorInfo->virtuals();
                     const bool declarationOnly = queryFlags() & QueryMessage::DeclarationOnly;
                     for (auto v = virtuals.begin(); v != virtuals.end(); ++v) {
                         const bool def = v->second->isDefinition();
                         if (declarationOnly && def) {
-                            const std::shared_ptr<CursorInfo> decl = v->second->bestTarget(map);
+                            const std::shared_ptr<CursorInfo> decl = v->second->bestTarget();
                             if (decl && !decl->isNull())
                                 continue;
                         }
@@ -108,7 +108,7 @@ int ReferencesJob::execute()
                     // doesn't work that well do the clever offset thing
                     // underneath
                 } else {
-                    const auto callers = cursorInfo->callers(pos, map);
+                    const auto callers = cursorInfo->callers();
                     for (auto c = callers.begin(); c != callers.end(); ++c) {
                         references[c->first] = std::make_pair(false, CXCursor_FirstInvalid);
                         // For find callers we don't want to prefer definitions or do ranks on cursors

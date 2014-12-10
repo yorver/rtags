@@ -763,14 +763,15 @@ void Server::generateTest(const std::shared_ptr<QueryMessage> &query, Connection
         noContextFlags.append("no-context");
         auto it = map->lower_bound(Location(source.fileId, 0, 0));
         while (it->isValid() && it->key().fileId() == source.fileId) {
-            Location loc;
-            if (it->value()->bestTarget(map, &loc) && loc.fileId() == source.fileId) {
+            auto target = it->value()->bestTarget();
+            if (target && target->location.fileId() == source.fileId) {
                 Map<String, Value> test;
                 test["type"] = "follow-location";
                 test["flags"] = noContextFlags;
                 test["location"] = String::format<128>("%s:%d:%d:", it->key().path().fileName(), it->key().line(), it->key().column());
                 List<Value> output;
-                output.append(String::format<128>("%s:%d:%d:", loc.path().fileName(), loc.line(), loc.column()));
+                output.append(String::format<128>("%s:%d:%d:", target->location.path().fileName(),
+                                                  target->location.line(), target->location.column()));
                 test["output"] = output;
                 tests.append(test);
             }
