@@ -45,8 +45,9 @@ static inline bool openDB(std::shared_ptr<T> &db, const Path &dbPath, const char
         db.reset(new T);
     if (db->path().isEmpty()) {
         warning() << "Opening" << (dbPath + name);
-        if (!db->open(dbPath + name, 0, cmp)) {
-            error() << "Failed to open database" << dbPath + name;
+        String err;
+        if (!db->open(dbPath + name, 0, cmp, &err)) {
+            error() << "Failed to open database" << dbPath + name << err;
             return false;
         }
     }
