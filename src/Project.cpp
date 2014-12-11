@@ -302,8 +302,6 @@ bool Project::load(FileManagerMode mode)
     }
 
     mState = Loaded;
-    mFiles.reset(new FilesMap);
-
     std::unique_ptr<ComplexDirty> dirty;
     const String visited = mGeneral->value("visitedFiles");
     if (!visited.isEmpty()) {
