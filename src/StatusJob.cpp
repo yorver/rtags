@@ -190,7 +190,11 @@ int StatusJob::execute()
         if (!write(delimiter) || !write("sources") || !write(delimiter))
             return 1;
         for (auto it = map->createIterator(); it->isValid(); it->next()) {
-            if (!write<512>("  %s: %s", it->value().sourceFile().constData(), it->value().toString().constData()))
+            uint32_t fileId, buildRootId;
+            Source::decodeKey(it->key(), fileId, buildRootId);
+            if (!write<512>("  %s (%lld/%d/%d): %s", it->value().sourceFile().constData(),
+                            it->key(), fileId, buildRootId,
+                            it->value().toString().constData()))
                 return 1;
         }
     }
