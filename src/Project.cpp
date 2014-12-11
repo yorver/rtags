@@ -271,7 +271,7 @@ bool Project::load(FileManagerMode mode)
         break;
     }
 
-    auto symbolsCompare = [](const char *a, int, const char *b, int) {
+    auto uint64Compare = [](const char *a, int , const char *b, int) {
         const uint64_t aval = *reinterpret_cast<const uint64_t*>(a);
         const uint64_t bval = *reinterpret_cast<const uint64_t*>(b);
         if (aval < bval)
@@ -279,14 +279,24 @@ bool Project::load(FileManagerMode mode)
         return aval == bval ? 0 : 1;
     };
 
+    auto uint32Compare = [](const char *a, int , const char *b, int) {
+        const uint32_t aval = *reinterpret_cast<const uint32_t*>(a);
+        const uint32_t bval = *reinterpret_cast<const uint32_t*>(b);
+        if (aval < bval)
+            return -1;
+        return aval == bval ? 0 : 1;
+    };
+
+    mFiles.reset(new FilesMap);
+
     Path::mkdir(mDBPath, Path::Recursive);
-    if (!openDB(mSymbols, mDBPath, "symbols", symbolsCompare)
+    if (!openDB(mSymbols, mDBPath, "symbols", uint64Compare)
         || !openDB(mSymbolNames, mDBPath, "symbolnames")
         || !openDB(mUsr, mDBPath, "usr")
-        || !openDB(mDependencies, mDBPath, "dependencies")
-        || !openDB(mSources, mDBPath, "sources")
-        || !openDB(mReferences, mDBPath, "references")
-        || !openDB(mTargets, mDBPath, "targets")
+        || !openDB(mDependencies, mDBPath, "dependencies", uint32Compare)
+        || !openDB(mSources, mDBPath, "sources", uint64Compare)
+        || !openDB(mReferences, mDBPath, "references", uint64Compare)
+        || !openDB(mTargets, mDBPath, "targets", uint64Compare)
         || !openDB(mGeneral, mDBPath, "db")) {
         return false;
     }
