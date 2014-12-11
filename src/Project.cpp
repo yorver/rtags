@@ -720,6 +720,7 @@ static inline int uniteMap(const Map<T, K> &original, const Map<T, K> &newValues
 
 void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles)
 {
+    auto scope = mDependencies->createWriteScope(1024 * 1024);
     StopWatch timer;
 
     const auto end = deps.end();
@@ -853,6 +854,8 @@ int Project::startDirtyJobs(Dirty *dirty, const UnsavedFiles &unsavedFiles)
 
 static inline int writeSymbolNames(const SymbolNameMapMemory &symbolNames, const std::shared_ptr<SymbolNameMap> &current)
 {
+    auto scope = current->createWriteScope(1024 * 1024);
+
     int ret = 0;
     auto it = symbolNames.begin();
     const auto end = symbolNames.end();
@@ -891,6 +894,8 @@ static inline void writeUsr(const UsrMapMemory &usr,
                             const std::shared_ptr<UsrMap> &current,
                             TargetsMapMemory &targets)
 {
+    auto usrScope = current->createWriteScope(1024 * 1024);
+
     // error() << "Writing usr" << usr.size();
     for (const auto &it : usr) {
         // error() << "usr" << it.first << it.second;
@@ -956,15 +961,14 @@ static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &sy
 
 static inline int writeSymbols(const SymbolMapMemory &symbols, const std::shared_ptr<SymbolMap> &current)
 {
+    auto scope = current->createWriteScope(1024 * 1024);
     int ret = 0;
-    const bool wasEmpty = current->isEmpty();
+    // const bool wasEmpty = current->isEmpty();
     auto it = symbols.begin();
     const auto end = symbols.end();
     while (it != end) {
-        if (wasEmpty || !current->find(it->first)->isValid()) {
-            current->set(it->first, it->second);
-            ++ret;
-        }
+        current->set(it->first, it->second);
+        ++ret;
         ++it;
     }
     return ret;
@@ -1253,14 +1257,14 @@ String Project::sync()
         return String();
     }
 
-    auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 1024);
-    auto referencesWriteScope = mReferences->createWriteScope(1024 * 1024);
-    auto targetsWriteScope = mTargets->createWriteScope(1024 * 1024);
-    auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 1024);
-    auto usrScope = mUsr->createWriteScope(1024 * 1024);
-    auto dependenciesScope = mDependencies->createWriteScope(1024 * 1024);
 
     if (!mDirtyFiles.isEmpty()) {
+        auto symbolsWriteScope = mSymbols->createWriteScope(1024 * 1024);
+        auto symbolNameWriteScope = mSymbolNames->createWriteScope(1024 * 1024);
+        auto usrScope = mUsr->createWriteScope(1024 * 1024);
+        auto referencesWriteScope = mReferences->createWriteScope(1024 * 1024);
+        auto targetsWriteScope = mTargets->createWriteScope(1024 * 1024);
+
         RTags::dirtySymbols(mSymbols, mDirtyFiles);
         RTags::dirtyReferences(mReferences, mDirtyFiles);
         RTags::dirtyTargets(mTargets, mDirtyFiles);
@@ -1292,6 +1296,9 @@ String Project::sync()
         if (!data->pendingReferenceMap.isEmpty())
             pendingReferences.append(&data->pendingReferenceMap);
         if (++it == mIndexData.end()) {
+            auto referencesWriteScope = mReferences->createWriteScope(1024 * 1024);
+            auto targetsWriteScope = mTargets->createWriteScope(1024 * 1024);
+            auto usrScope = mUsr->createWriteScope(1024 * 1024);
             for (const UsrMapMemory *map : pendingReferences)
                 resolvePendingReferences(mSymbols, mUsr, *map, allTargets, allReferences);
             references = writeReferencesOrTargets(allReferences, mReferences);
