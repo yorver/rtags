@@ -320,7 +320,7 @@ bool Project::load(FileManagerMode mode)
     }
 
     {
-        std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
+        std::unique_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
         auto it = mDependencies->createIterator();
 
         while (it->isValid()) {
@@ -349,7 +349,7 @@ bool Project::load(FileManagerMode mode)
     }
 
     {
-        std::shared_ptr<SourceMap::WriteScope> sourcesWriteScope;
+        std::unique_ptr<SourceMap::WriteScope> sourcesWriteScope;
         auto it = mSources->createIterator();
         while (it->isValid()) {
             const Source &source = it->value();
@@ -961,7 +961,6 @@ static inline void resolvePendingReferences(const std::shared_ptr<SymbolMap> &sy
 
 static inline int writeSymbols(const SymbolMapMemory &symbols, const std::shared_ptr<SymbolMap> &current)
 {
-    auto scope = current->createWriteScope(1024 * 1024);
     int ret = 0;
     // const bool wasEmpty = current->isEmpty();
     auto it = symbols.begin();
@@ -974,6 +973,20 @@ static inline int writeSymbols(const SymbolMapMemory &symbols, const std::shared
     return ret;
 }
 
+template <typename Container>
+static inline void uniteUnite(Container &current, const Container &newValues)
+{
+    const bool wasEmpty = current.isEmpty();
+    for (const auto &it : newValues) {
+        auto &value = current[it.first];
+        if (wasEmpty) {
+            current[it.first] = it.second;
+        } else {
+            value.unite(it.second);
+        }
+    }
+}
+
 template <typename Memory, typename DB>
 static inline int writeReferencesOrTargets(const Memory &m, const std::shared_ptr<DB> &db)
 {
@@ -983,20 +996,19 @@ static inline int writeReferencesOrTargets(const Memory &m, const std::shared_pt
         if (wasEmpty) {
             db->set(val.first, val.second);
             ++ret;
-            continue;
-        }
-
-        auto cur = db->find(val.first);
-        if (!cur->isValid()) {
-            db->set(val.first, val.second);
-            ++ret;
         } else {
-            auto vals = cur->value();
-            int count = 0;
-            vals.unite(val.second, &count);
-            if (count) {
+            auto cur = db->find(val.first);
+            if (!cur->isValid()) {
                 db->set(val.first, val.second);
                 ++ret;
+            } else {
+                auto vals = cur->value();
+                int count = 0;
+                vals.unite(val.second, &count);
+                if (count) {
+                    db->set(val.first, val.second);
+                    ++ret;
+                }
             }
         }
     }
@@ -1283,19 +1295,24 @@ String Project::sync()
     ReferencesMapMemory allReferences;
     TargetsMapMemory allTargets;
     auto it = mIndexData.begin();
+    auto symbolsScope = mSymbols->createWriteScope(1024 * 1024 * 4);
+    UsrMapMemory allUsrs;
     while (true) {
         const std::shared_ptr<IndexData> &data = it->second;
         addDependencies(data->dependencies, newFiles);
         addFixIts(data->dependencies, data->fixIts);
-        writeUsr(data->usrs, mUsr, allTargets);
+        uniteUnite(allUsrs, data->usrs);
         symbols += writeSymbols(data->symbols, mSymbols);
         symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
-        allReferences.unite(data->references);
-        allTargets.unite(data->targets);
+        // error() << data->references << allReferences.size() << Location::path(data->fileId());
+        uniteUnite(allReferences, data->references);
+        uniteUnite(allTargets, data->targets);
 
         if (!data->pendingReferenceMap.isEmpty())
             pendingReferences.append(&data->pendingReferenceMap);
         if (++it == mIndexData.end()) {
+            symbolsScope.reset();
+            writeUsr(allUsrs, mUsr, allTargets);
             auto referencesWriteScope = mReferences->createWriteScope(1024 * 1024);
             auto targetsWriteScope = mTargets->createWriteScope(1024 * 1024);
             auto usrScope = mUsr->createWriteScope(1024 * 1024);
