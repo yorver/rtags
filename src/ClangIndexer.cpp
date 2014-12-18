@@ -1538,7 +1538,8 @@ static CXChildVisitResult resolveAutoTypeRefVisitor(CXCursor cursor, CXCursor, C
     const CXCursorKind kind = clang_getCursorKind(cursor);
     // userData->chain.append(kind);
     // error() << "Got here" << cursor << userData->chain;
-    ++userData->index;
+    if (++userData->index >= 10)
+        return CXChildVisit_Break;
     switch (kind) {
     case CXCursor_TypeRef:
     case CXCursor_TemplateRef:
@@ -1562,6 +1563,8 @@ static CXChildVisitResult resolveAutoTypeRefVisitor(CXCursor cursor, CXCursor, C
                 userData->ref = u.ref;
                 return CXChildVisit_Break;
             }
+            if (userData->index + u.index > 10)
+                return CXChildVisit_Break;
             break; }
         default:
             break;
