@@ -320,7 +320,7 @@ bool Project::load(FileManagerMode mode)
     }
 
     {
-        std::unique_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
+        std::shared_ptr<DependencyMap::WriteScope> dependenciesWriteScope;
         auto it = mDependencies->createIterator();
 
         while (it->isValid()) {
@@ -349,7 +349,7 @@ bool Project::load(FileManagerMode mode)
     }
 
     {
-        std::unique_ptr<SourceMap::WriteScope> sourcesWriteScope;
+        std::shared_ptr<SourceMap::WriteScope> sourcesWriteScope;
         auto it = mSources->createIterator();
         while (it->isValid()) {
             const Source &source = it->value();
