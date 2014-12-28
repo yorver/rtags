@@ -135,7 +135,7 @@ public:
     Set<Location> references;
     Map<Location, uint16_t> targets;
 #endif
-    int startLine, startColumn, endLine, endColumn;
+    unsigned startLine, startColumn, endLine, endColumn;
 
 
 #ifndef RTAGS_RP

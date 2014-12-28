@@ -859,13 +859,8 @@ std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor
     CXSourceRange range = clang_getCursorExtent(cursor);
     CXSourceLocation rangeStart = clang_getRangeStart(range);
     CXSourceLocation rangeEnd = clang_getRangeEnd(range);
-    unsigned startLine, startColumn, endLine, endColumn;
-    clang_getPresumedLocation(rangeStart, 0, &startLine, &startColumn);
-    clang_getPresumedLocation(rangeEnd, 0, &endLine, &endColumn);
-    info->startLine = startLine;
-    info->startColumn = startColumn;
-    info->endLine = endLine;
-    info->endColumn = endColumn;
+    clang_getPresumedLocation(rangeStart, 0, &info->startLine, &info->startColumn);
+    clang_getPresumedLocation(rangeEnd, 0, &info->endLine, &info->endColumn);
     info->definition = false;
     info->kind = kind;
     if (isOperator) {
@@ -882,16 +877,6 @@ std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor
     }
     info->type = clang_getCursorType(cursor).kind;
 
-    // if (old->symbolLength) {
-    //     if (old->symbolLength != info->symbolLength
-    //         || old->kind != info->kind
-    //         || old->type != info->type
-    //         || old->symbolName != info->symbolName) {
-    //         error() << "Changed"
-    //                 << location << "\n"
-    //                 << *old << "\nto\n" << *info;
-    //     }
-    // }
     return info;
 }
 
