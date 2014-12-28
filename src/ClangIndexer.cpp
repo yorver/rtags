@@ -744,12 +744,6 @@ void ClangIndexer::superclassTemplateMemberFunctionUgleHack(const CXCursor &curs
     }
 }
 
-static inline void findSymbolNameAndSymbolLength(const CXCursor &cursor, String &symbolName, int &symbolLength)
-{
-
-
-}
-
 std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind,
                                                           const Location &location, const CXCursor &ref,
                                                           const CXCursor &parent)
