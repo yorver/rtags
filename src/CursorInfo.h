@@ -33,7 +33,7 @@ class CursorInfo
 public:
     CursorInfo()
         : symbolLength(0), kind(CXCursor_FirstInvalid), type(CXType_Invalid), enumValue(0),
-          startLine(-1), startColumn(-1), endLine(-1), endColumn(-1)
+          startLine(0), startColumn(0), endLine(0), endColumn(0)
     {}
 
     void clear()
@@ -43,6 +43,7 @@ public:
         type = CXType_Invalid;
         enumValue = 0;
         symbolName.clear();
+        startLine = startColumn = endLine = endColumn;
 #ifndef RTAGS_RP
         targets.clear();
         references.clear();

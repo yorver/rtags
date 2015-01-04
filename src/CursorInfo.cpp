@@ -36,7 +36,7 @@ String CursorInfo::toString(unsigned cursorInfoFlags, unsigned keyFlags) const
                                       kindSpelling().constData(),
                                       RTags::eatString(clang_getTypeKindSpelling(type)).constData(),
                                       symbolLength,
-                                      startLine != -1 ? String::format<32>("Range: %d:%d-%d:%d\n", startLine, startColumn, endLine, endColumn).constData() : "",
+                                      startLine ? String::format<32>("Range: %d:%d-%d:%d\n", startLine, startColumn, endLine, endColumn).constData() : "",
 #if CINDEX_VERSION_MINOR > 1
                                       kind == CXCursor_EnumConstantDecl ? String::format<32>("Enum Value: %lld\n", enumValue).constData() :
 #endif
