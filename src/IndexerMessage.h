@@ -19,6 +19,7 @@
 #include "CursorInfo.h"
 #include "IndexData.h"
 #include "RTagsMessage.h"
+#include "Diagnostic.h"
 #include <rct/Message.h>
 #include <rct/Serializer.h>
 #include <rct/String.h>
@@ -45,7 +46,7 @@ public:
         serializer << mData->symbolNames << mData->dependencies
                    << mData->pendingReferenceMap << mData->references
                    << mData->targets << mData->usrs << mData->message << mData->fixIts
-                   << mData->xmlDiagnostics << mData->visited << mData->id;
+                   << mData->diagnostics << mData->visited << mData->id;
     }
     void decode(Deserializer &deserializer)
     {
@@ -58,7 +59,7 @@ public:
         deserializer >> mData->symbolNames >> mData->dependencies
                      >> mData->pendingReferenceMap >> mData->references
                      >> mData->targets >> mData->usrs >> mData->message >> mData->fixIts
-                     >> mData->xmlDiagnostics >> mData->visited >> mData->id;
+                     >> mData->diagnostics >> mData->visited >> mData->id;
     }
     std::shared_ptr<IndexData> data() const { return mData; }
     const Path &project() const { return mProject; }

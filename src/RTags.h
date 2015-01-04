@@ -56,6 +56,8 @@ void initMessages();
 }
 
 class CursorInfo;
+struct Diagnostic;
+typedef Map<Location, Diagnostic> DiagnosticsMap;
 typedef DB<Location, std::shared_ptr<CursorInfo> > SymbolMap;
 typedef Map<Location, std::shared_ptr<CursorInfo> > SymbolMapMemory;
 typedef DB<Location, Set<Location> > ReferencesMap;
