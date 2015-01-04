@@ -29,16 +29,6 @@
 static const CXSourceLocation nullLocation = clang_getNullLocation();
 static const CXCursor nullCursor = clang_getNullCursor();
 
-struct DumpUserData {
-    int indentLevel;
-    ClangIndexer *indexer;
-};
-
-struct FindImplicitEqualsConstructorUserData {
-    CXCursor &ref;
-    bool &success;
-};
-
 struct VerboseVisitorUserData {
     int indent;
     String out;
@@ -859,8 +849,8 @@ std::shared_ptr<CursorInfo> ClangIndexer::handleReference(const CXCursor &cursor
     CXSourceRange range = clang_getCursorExtent(cursor);
     CXSourceLocation rangeStart = clang_getRangeStart(range);
     CXSourceLocation rangeEnd = clang_getRangeEnd(range);
-    clang_getPresumedLocation(rangeStart, 0, &info->startLine, &info->startColumn);
-    clang_getPresumedLocation(rangeEnd, 0, &info->endLine, &info->endColumn);
+    clang_getSpellingLocation(rangeStart, 0, &info->startLine, &info->startColumn, 0);
+    clang_getSpellingLocation(rangeEnd, 0, &info->endLine, &info->endColumn, 0);
     info->definition = false;
     info->kind = kind;
     if (isOperator) {
@@ -1016,8 +1006,8 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
     CXSourceLocation rangeStart = clang_getRangeStart(range);
     CXSourceLocation rangeEnd = clang_getRangeEnd(range);
     unsigned startLine, startColumn, endLine, endColumn;
-    clang_getPresumedLocation(rangeStart, 0, &startLine, &startColumn);
-    clang_getPresumedLocation(rangeEnd, 0, &endLine, &endColumn);
+    clang_getSpellingLocation(rangeStart, 0, &startLine, &startColumn, 0);
+    clang_getSpellingLocation(rangeEnd, 0, &endLine, &endColumn, 0);
     info->startLine = startLine;
     info->startColumn = startColumn;
     info->endLine = endLine;
@@ -1209,7 +1199,7 @@ bool ClangIndexer::parse()
 
 struct XmlEntry
 {
-    enum Type { None, Warning, Error, Fixit };
+    enum Type { None, Warning, Error, Fixit, Skipped };
 
     XmlEntry(Type t = None, const String &m = String(), int l = -1)
         : type(t), message(m), length(l)
@@ -1304,7 +1294,7 @@ bool ClangIndexer::diagnose()
                         break;
                     } else {
                         unsigned int line, column;
-                        clang_getPresumedLocation(start, 0, &line, &column);
+                        clang_getSpellingLocation(start, 0, &line, &column, 0);
                         const Location key(loc.fileId(), line, column);
                         xmlEntries[key] = XmlEntry(type, msg, endOffset - startOffset);
                         ok = true;
@@ -1313,7 +1303,7 @@ bool ClangIndexer::diagnose()
                 }
                 if (!ok) {
                     unsigned line, column;
-                    clang_getPresumedLocation(diagLoc, 0, &line, &column);
+                    clang_getSpellingLocation(diagLoc, 0, &line, &column, 0);
                     const Location key(loc.fileId(), line, column);
                     xmlEntries[key] = XmlEntry(type, msg);
                     // no length
@@ -1328,11 +1318,13 @@ bool ClangIndexer::diagnose()
                 CXSourceLocation start = clang_getRangeStart(range);
 
                 unsigned line, column;
-                CXString file;
-                clang_getPresumedLocation(start, &file, &line, &column);
-                CXStringScope fileScope(file);
+                CXFile file;
+                clang_getSpellingLocation(start, &file, &line, &column, 0);
+                if (!file)
+                    continue;
+                CXStringScope fileName(clang_getFileName(file));
 
-                const Location loc = createLocation(clang_getCString(file), line, column);
+                const Location loc = createLocation(clang_getCString(fileName), line, column);
                 if (mData->visited.value(loc.fileId())) {
                     unsigned int startOffset, endOffset;
                     CXSourceLocation end = clang_getRangeEnd(range);
@@ -1355,42 +1347,66 @@ bool ClangIndexer::diagnose()
         clang_disposeDiagnostic(diagnostic);
     }
 
+    for (Hash<uint32_t, bool>::const_iterator it = mData->visited.begin(); it != mData->visited.end(); ++it) {
+        if (it->second) {
+            const Location loc(it->first, 0, 0);
+#if CINDEX_VERSION_MINOR >= 21
+            CXFile file = clang_getFile(mClangUnit, loc.path().constData());
+            if (file) {
+                if (CXSourceRangeList *skipped = clang_getSkippedRanges(mClangUnit, file)) {
+                    const unsigned count = skipped->count;
+                    for (unsigned i=0; i<count; ++i) {
+                        CXSourceLocation start = clang_getRangeStart(skipped->ranges[i]);
+
+                        unsigned line, column, startOffset, endOffset;
+                        clang_getSpellingLocation(start, 0, &line, &column, &startOffset);
+                        XmlEntry &entry = xmlEntries[Location(loc.fileId(), line, column)];
+                        if (entry.type == XmlEntry::None) {
+                            CXSourceLocation end = clang_getRangeEnd(skipped->ranges[i]);
+                            clang_getSpellingLocation(end, 0, 0, 0, &endOffset);
+                            entry.type = XmlEntry::Skipped;
+                            entry.length = endOffset - startOffset;
+                            // error() << line << column << startOffset << endOffset;
+                        }
+                    }
+
+                    clang_disposeSourceRangeList(skipped);
+                    if (count)
+                        continue;
+                }
+            }
+#endif
+            const Map<Location, XmlEntry>::const_iterator x = xmlEntries.lower_bound(loc);
+            if (x == xmlEntries.end() || x->first.fileId() != it->first) {
+                xmlEntries[loc] = XmlEntry();
+            }
+        }
+    }
+
     mData->xmlDiagnostics = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n  <checkstyle>";
     if (!xmlEntries.isEmpty()) {
-        Map<Location, XmlEntry>::const_iterator entry = xmlEntries.begin();
-        const Map<Location, XmlEntry>::const_iterator end = xmlEntries.end();
-
-        const char *severities[] = { "none", "warning", "error", "fixit" };
-
+        const char *severities[] = { "none", "warning", "error", "fixit", "skipped" };
         uint32_t lastFileId = 0;
-        while (entry != end) {
-            const Location &loc = entry->first;
-            const XmlEntry &xmlEntry = entry->second;
+
+        for (const auto &entry : xmlEntries) {
+            const Location &loc = entry.first;
+            const XmlEntry &xmlEntry = entry.second;
             if (loc.fileId() != lastFileId) {
                 if (lastFileId)
                     mData->xmlDiagnostics += "\n    </file>";
                 lastFileId = loc.fileId();
                 mData->xmlDiagnostics += String::format<128>("\n    <file name=\"%s\">", loc.path().constData());
             }
-            mData->xmlDiagnostics += String::format("\n      <error line=\"%d\" column=\"%d\" %sseverity=\"%s\" message=\"%s\"/>",
-                                                    loc.line(), loc.column(),
-                                                    (xmlEntry.length <= 0 ? ""
-                                                     : String::format<32>("length=\"%d\" ", xmlEntry.length).constData()),
-                                                    severities[xmlEntry.type], xmlEscape(xmlEntry.message).constData());
-            ++entry;
+            if (xmlEntry.type != XmlEntry::None) {
+                mData->xmlDiagnostics += String::format("\n      <error line=\"%d\" column=\"%d\" %sseverity=\"%s\" message=\"%s\"/>",
+                                                        loc.line(), loc.column(),
+                                                        (xmlEntry.length <= 0 ? ""
+                                                         : String::format<32>("length=\"%d\" ", xmlEntry.length).constData()),
+                                                        severities[xmlEntry.type], xmlEscape(xmlEntry.message).constData());
+            }
         }
         if (lastFileId)
             mData->xmlDiagnostics += "\n    </file>";
-    }
-
-    for (Hash<uint32_t, bool>::const_iterator it = mData->visited.begin(); it != mData->visited.end(); ++it) {
-        if (it->second) {
-            const Map<Location, XmlEntry>::const_iterator x = xmlEntries.lower_bound(Location(it->first, 0, 0));
-            if (x == xmlEntries.end() || x->first.fileId() != it->first) {
-                const String fn = Location::path(it->first);
-                mData->xmlDiagnostics += String::format("\n    <file name=\"%s\"/>", fn.constData());
-            }
-        }
     }
 
     mData->xmlDiagnostics += "\n  </checkstyle>";
