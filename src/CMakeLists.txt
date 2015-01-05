@@ -50,6 +50,7 @@ endif ()
 
 set(RCT_STATIC 1)
 set(RCT_NO_INSTALL 1)
+set(RCT_USE_DB 1)
 
 include(rct/rct.cmake)
 
