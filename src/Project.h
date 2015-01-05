@@ -102,6 +102,7 @@ public:
     int remove(const Match &match);
     void onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::shared_ptr<IndexData> &indexData);
     const Set<Path> &watchedPaths() const { return mWatchedPaths; }
+    String toCompilationDatabase() const;
     bool isIndexing() const { return !mActiveJobs.isEmpty(); }
     void onFileModifiedOrRemoved(const Path &);
     Hash<uint32_t, Path> visitedFiles() const
