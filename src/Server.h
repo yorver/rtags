@@ -79,7 +79,7 @@ public:
               rpNiceValue(0), syncThreshold(0), threadStackSize(0), maxCrashCount(0),
               completionCacheSize(0), astCache(0), testTimeout(60 * 1000 * 5)
         {}
-        Path socketFile, dataDir;
+        Path socketFile, dataDir, argTransform;
         unsigned options;
         int jobCount, unloadTimer, rpVisitFileTimeout,
             rpIndexerMessageTimeout, rpConnectTimeout, rpNiceValue,
@@ -109,7 +109,8 @@ public:
     std::shared_ptr<JobScheduler> jobScheduler() const { return mJobScheduler; }
 private:
     int loadFileIds();
-    bool index(const String &arguments, const Path &pwd, const Path &projectRootOverride, bool escape);
+    bool index(const String &arguments, const Path &pwd,
+               const Path &projectRootOverride, unsigned int sourceFlags = 0);
     void onNewConnection(SocketServer *server);
     void setCurrentProject(const std::shared_ptr<Project> &project, unsigned int queryFlags = 0);
     void onUnload();

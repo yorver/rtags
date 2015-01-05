@@ -339,14 +339,30 @@ void Server::onNewMessage(const std::shared_ptr<Message> &message, Connection *c
     }
 }
 
-bool Server::index(const String &arguments, const Path &pwd, const Path &projectRootOverride, bool escape)
+bool Server::index(const String &arguments, const Path &pwd, const Path &projectRootOverride, unsigned int flags)
 {
-    Path unresolvedPath;
-    unsigned int flags = Source::None;
-    if (escape)
-        flags |= Source::Escape;
     List<Path> unresolvedPaths;
-    List<Source> sources = Source::parse(arguments, pwd, flags, &unresolvedPaths);
+    List<Source> sources;
+    bool parse = true;
+    if (!mOptions.argTransform.isEmpty()) {
+        Process process;
+        if (process.exec(mOptions.argTransform, List<String>() << arguments) == Process::Done) {
+            if (process.returnCode() != 0) {
+                warning() << "--arg-transform returned" << process.returnCode() << "for" << arguments;
+                return false;
+            }
+            const String stdOut = process.readAllStdOut();
+            if (stdOut != arguments) {
+                warning() << "Changed\n" << arguments << "\nto\n" << stdOut;
+                parse = false;
+                sources = Source::parse(stdOut, pwd, flags, &unresolvedPaths);
+            }
+        }
+    }
+
+    if (!parse)
+        sources = Source::parse(arguments, pwd, flags, &unresolvedPaths);
+
     bool ret = false;
     int idx = 0;
     for (Source &source : sources) {
@@ -423,7 +439,7 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, Co
                     args += " ";
             }
 
-            index(args, dir, message->projectRoot(), message->escape());
+            index(args, dir, message->projectRoot(), message->escape() ? Source::Escape : Source::None);
         }
         clang_CompileCommands_dispose(cmds);
         clang_CompilationDatabase_dispose(db);
@@ -435,7 +451,7 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, Co
     }
 #endif
     const bool ret = index(message->arguments(), message->workingDirectory(),
-                           message->projectRoot(), message->escape());
+                           message->projectRoot(), message->escape() ? Source::Escape : Source::None);
     if (conn)
         conn->finish(ret ? 0 : 1);
 }
@@ -1611,7 +1627,7 @@ bool Server::runTests()
                 ret = false;
                 continue;
             }
-            if (!index("clang " + source.convert<String>(), workingDirectory, workingDirectory, false)) {
+            if (!index("clang " + source.convert<String>(), workingDirectory, workingDirectory)) {
                 error() << "Failed to index" << ("clang " + source.convert<String>()) << workingDirectory;
                 ret = false;
                 continue;
