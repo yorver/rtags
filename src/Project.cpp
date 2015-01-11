@@ -1008,7 +1008,7 @@ static inline int writeReferencesOrTargets(const Memory &m, const std::shared_pt
                 int count = 0;
                 vals.unite(val.second, &count);
                 if (count) {
-                    db->set(val.first, val.second);
+                    db->set(val.first, vals);
                     ++ret;
                 }
             }
