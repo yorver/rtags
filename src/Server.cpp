@@ -268,10 +268,10 @@ int Server::reloadProjects()
             continue;
         p.chop(1);
         RTags::decodePath(p);
+        SourceMap sources;
         if (p.isDir()) {
-            SourceMap sources;
             String err;
-            if (sources.open(path + "sources") && sources.size()) {
+            if (sources.open(path + "sources")) {
                 addProject(p);
             } else {
                 error() << "Can't restore project:" << p << err << "Removing" << path;

@@ -720,31 +720,6 @@ static inline int uniteMap(const Map<T, K> &original, const Map<T, K> &newValues
     return ret;
 }
 
-void Project::addDependencies(const DependencyMapMemory &deps, Set<uint32_t> &newFiles)
-{
-    auto scope = mDependencies->createWriteScope(1024 * 1024);
-    StopWatch timer;
-
-    const auto end = deps.end();
-    for (auto it = deps.begin(); it != end; ++it) {
-        auto cur = mDependencies->find(it->first);
-        if (!cur->isValid()) {
-            mDependencies->set(it->first, it->second);
-        } else {
-            Set<uint32_t> merged;
-            if (uniteSet(cur->value(), it->second, merged)) {
-                cur->setValue(merged);
-            }
-        }
-        if (newFiles.isEmpty()) {
-            newFiles = it->second;
-        } else {
-            newFiles.unite(it->second);
-        }
-        newFiles.insert(it->first);
-    }
-}
-
 Set<uint32_t> Project::dependencies(uint32_t fileId, DependencyMode mode) const
 {
     if (mode == DependsOnArg)
@@ -1296,35 +1271,77 @@ String Project::sync()
     int targets = 0;
     ReferencesMapMemory allReferences;
     TargetsMapMemory allTargets;
+    DependencyMapMemory allDeps;
     auto it = mIndexData.begin();
     auto symbolsScope = mSymbols->createWriteScope(1024 * 1024 * 4);
     UsrMapMemory allUsrs;
+    SymbolNameMapMemory allSymbolNames;
+    List<int> ints;
+    ints.resize(100);
+#define ADD(idx)                                \
+    {                                           \
+        const int elapsed = sw.elapsed();       \
+        const int dur = elapsed - start;        \
+        start = elapsed;                        \
+        ints[idx] += dur;                       \
+    }
+
+
+
     while (true) {
         const std::shared_ptr<IndexData> &data = it->second;
-        addDependencies(data->dependencies, newFiles);
+        int start = sw.elapsed();
+        uniteUnite(allDeps, data->dependencies);
+        // addDependencies(data->dependencies, newFiles);
+        ADD(0);
         addFixIts(data->dependencies, data->fixIts);
+        ADD(1);
         uniteUnite(allUsrs, data->usrs);
+        ADD(2);
         symbols += writeSymbols(data->symbols, mSymbols);
-        symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
+        ADD(3);
+        uniteUnite(allSymbolNames, data->symbolNames);
+        // symbolNames += writeSymbolNames(data->symbolNames, mSymbolNames);
+        ADD(4);
         // error() << data->references << allReferences.size() << Location::path(data->fileId());
         uniteUnite(allReferences, data->references);
+        ADD(5);
         uniteUnite(allTargets, data->targets);
+        ADD(6);
 
         if (!data->pendingReferenceMap.isEmpty())
             pendingReferences.append(&data->pendingReferenceMap);
         if (++it == mIndexData.end()) {
             symbolsScope.reset();
+            ADD(7);
             writeUsr(allUsrs, mUsr, allTargets);
+            ADD(8);
             auto referencesWriteScope = mReferences->createWriteScope(1024 * 1024);
             auto targetsWriteScope = mTargets->createWriteScope(1024 * 1024);
             auto usrScope = mUsr->createWriteScope(1024 * 1024);
             for (const UsrMapMemory *map : pendingReferences)
                 resolvePendingReferences(mSymbols, mUsr, *map, allTargets, allReferences);
+            ADD(9);
+
             references = writeReferencesOrTargets(allReferences, mReferences);
+            ADD(10);
             targets = writeReferencesOrTargets(allTargets, mTargets);
+            ADD(11);
+            {
+                auto dependenciesScope = mDependencies->createWriteScope(1024 * 1024);
+                writeReferencesOrTargets(allDeps, mDependencies);
+            }
+            ADD(12);
+            symbolNames = writeSymbolNames(allSymbolNames, mSymbolNames);
             break;
         }
     }
+    for (int i=0; i<ints.size(); ++i) {
+        if (ints[i]) {
+            printf("%d: %d\n", i, ints[i]);
+        }
+    }
+
 
     for (auto it = newFiles.constBegin(); it != newFiles.constEnd(); ++it) {
         watch(Location::path(*it));
