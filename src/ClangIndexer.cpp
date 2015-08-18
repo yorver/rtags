@@ -1016,9 +1016,12 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
     Symbol &c = unit(location)->symbols[location];
     if (cursorPtr)
         *cursorPtr = &c;
+    const bool debug = (location == "/Users/abakken/dev/rtags/src/ClangIndexer.cpp:1012:49:");
     if (!c.isNull()) {
         if (c.kind == CXCursor_MacroExpansion)
             addNamePermutations(cursor, location, RTags::Type_Cursor);
+        if (debug)
+            error() << cursor << "returns here" << __LINE__;
         return true;
     }
 
@@ -1060,6 +1063,8 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
             unit(location)->symbols.remove(location);
             if (cursorPtr)
                 *cursorPtr = 0;
+            if (debug)
+                error() << cursor << "returns here" << __LINE__;
             return false;
         }
     } else {
