@@ -1014,11 +1014,8 @@ bool ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKind kind, const
     Symbol &c = unit(location)->symbols[location];
     if (cursorPtr)
         *cursorPtr = &c;
-    if (!c.isNull()) {
-        if (c.kind == CXCursor_MacroExpansion) {
-            addNamePermutations(cursor, location, RTags::Type_Cursor);
-            unit(location)->usrs[usr].insert(location);
-        }
+    if (!c.isNull() && c.kind != CXCursor_MacroExpansion) {
+        // For macro expansions we let the first
         return true;
     }
 

@@ -40,6 +40,7 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
                         Flags<Location::KeyFlag> keyFlags,
                         const std::shared_ptr<Project> &project) const
 {
+    return String();
     auto properties = [this]()
         {
             List<String> ret;
@@ -96,6 +97,19 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
         return String::format<128>("Type: %s\n", str.constData());
     };
 
+    auto expandedSyms = [this]() {
+        String ret;
+        if (!expandedSymbols.isEmpty()) {
+            ret = "Expanded symbols:";
+            List<String> usrs;
+            for (const auto &sym : expandedSymbols) {
+                ret << ' ' << sym.usr;
+            }
+            ret << '\n';
+        }
+        return ret;
+    };
+
     String ret = String::format<1024>("SymbolName: %s\n"
                                       "Kind: %s\n"
                                       "%s" // type
@@ -109,7 +123,8 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
                                       "%s" // fieldoffset
                                       "%s" // baseclasses
                                       "%s" // briefComment
-                                      "%s", // xmlComment
+                                      "%s" // xmlComment
+                                      "%s", // expandedSymbols
                                       symbolName.constData(),
                                       kindSpelling().constData(),
                                       printTypeName().constData(),
@@ -127,7 +142,9 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
                                       alignment >= 0 ? String::format<32>("alignment (bytes): %d\n", alignment).constData() : "",
                                       bases.isEmpty() ? "" : String::format<64>("BaseClasses: %s\n", String::join(bases, ", ").constData()).constData(),
                                       briefComment.isEmpty() ? "" : String::format<1024>("Brief comment: %s\n", briefComment.constData()).constData(),
-                                      xmlComment.isEmpty() ? "" : String::format<16384>("Xml comment: %s\n", xmlComment.constData()).constData());
+                                      xmlComment.isEmpty() ? "" : String::format<16384>("Xml comment: %s\n", xmlComment.constData()).constData(),
+                                      expandedSyms().constData());
+
     if (!(cursorInfoFlags & IgnoreTargets) && project) {
         extern Set<Symbol> findTargets(const std::shared_ptr<Project> &, const Symbol &);
         auto targets = findTargets(project, *this);

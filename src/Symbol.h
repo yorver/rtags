@@ -61,6 +61,8 @@ struct Symbol
     int32_t size; // sizeof
     int16_t fieldOffset, alignment; // bits
 
+    List<Symbol> expandedSymbols; // for macro expansions
+
     bool isNull() const { return location.isNull(); }
     void clear()
     {
@@ -77,6 +79,7 @@ struct Symbol
         briefComment.clear();
         xmlComment.clear();
         startLine = startColumn = endLine = endColumn = size = fieldOffset = alignment = -1;
+        // expandedSymbols.clear();
     }
 
     uint16_t targetsValue() const;
@@ -133,7 +136,7 @@ template <> inline Serializer &operator<<(Serializer &s, const Symbol &t)
       << static_cast<uint16_t>(t.kind) << static_cast<uint16_t>(t.type)
       << static_cast<uint8_t>(t.linkage) << t.flags << t.briefComment << t.xmlComment
       << t.enumValue << t.startLine << t.endLine << t.startColumn << t.endColumn
-      << t.size << t.fieldOffset << t.alignment;
+      << t.size << t.fieldOffset << t.alignment; // << t.expandedSymbols;
     return s;
 }
 
@@ -145,7 +148,7 @@ template <> inline Deserializer &operator>>(Deserializer &s, Symbol &t)
       >> t.symbolLength >> kind >> type >> linkage >> t.flags
       >> t.briefComment >> t.xmlComment >> t.enumValue
       >> t.startLine >> t.endLine >> t.startColumn >> t.endColumn
-      >> t.size >> t.fieldOffset >> t.alignment;
+      >> t.size >> t.fieldOffset >> t.alignment; // >> t.expandedSymbols;
 
     t.kind = static_cast<CXCursorKind>(kind);
     t.type = static_cast<CXTypeKind>(type);
