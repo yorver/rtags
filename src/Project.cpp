@@ -332,7 +332,7 @@ bool Project::init()
 
     {
         std::lock_guard<std::mutex> lock(mMutex);
-        file >> mVisitedFiles >> mDiagnostics;
+        file >> mVisitedFiles >> mDiagnostics >> mCompilationDatabaseFile;
     }
     loadDependencies(file, mDependencies);
 
@@ -766,7 +766,7 @@ bool Project::save()
         }
         {
             std::lock_guard<std::mutex> lock(mMutex);
-            file << mVisitedFiles << mDiagnostics;
+            file << mVisitedFiles << mDiagnostics << mCompilationDatabaseFile;
         }
         saveDependencies(file, mDependencies);
         if (!file.flush()) {
@@ -889,6 +889,9 @@ void Project::onFileModified(const Path &path)
 {
     debug() << path << "was modified";
     onFileAddedOrModified(path);
+    if (!strcmp(path.fileName(), "compilation_database.json")) {
+        std::shared_ptr<IndexMessage> msg(new IndexMessage);
+    }
 }
 
 void Project::onFileAdded(const Path &path)
@@ -2269,3 +2272,20 @@ String Project::estimateMemory() const
     add("Total", total);
     return String::join(ret, "\n");
 }
+
+void Project::setCompilationDatabaseInfo(const Path &path,
+                                         const List<Path> &pathEnvironment,
+                                         Flags<IndexMessage::Flag> flags)
+{
+    if (path != mCompilationDatabaseFile
+        || pathEnvironment != mPathEnvironment
+        || flags |= mCompilationDatabaseFlags) {
+        if (!mCompilationDatabaseFile.isEmpty())
+            unwatch(mCompilationDatabaseFile, Watch_CompilationDatabase);
+        mCompilationDatabaseFile = path;
+        if (!mCompilationDatabaseFile.isEmpty())
+            watch(mCompilationDatabaseFile, Watch_CompilationDatabase);
+        save();
+    }
+}
+

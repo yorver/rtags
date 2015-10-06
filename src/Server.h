@@ -124,7 +124,8 @@ private:
                const Path &pwd,
                const List<Path> &pathEnvironment,
                const Path &projectRootOverride,
-               Flags<IndexMessage::Flag> = Flags<IndexMessage::Flag>());
+               Flags<IndexMessage::Flag> = Flags<IndexMessage::Flag>(),
+               const Path &compilationDatabaseDir = Path());
     void onNewConnection(SocketServer *server);
     void setCurrentProject(const std::shared_ptr<Project> &project);
     void onNewMessage(const std::shared_ptr<Message> &message, const std::shared_ptr<Connection> &conn);

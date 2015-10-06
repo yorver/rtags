@@ -431,7 +431,8 @@ bool Server::index(const String &args,
                    const Path &pwd,
                    const List<Path> &pathEnvironment,
                    const Path &projectRootOverride,
-                   Flags<IndexMessage::Flag> indexMessageFlags)
+                   Flags<IndexMessage::Flag> indexMessageFlags,
+                   const Path &compilationDatabaseDir)
 {
     assert(pwd.endsWith('/'));
     const Flags<Source::ParseFlag> sourceParseFlags = (indexMessageFlags & IndexMessage::Escape
@@ -508,6 +509,8 @@ bool Server::index(const String &args,
             }
             if (!mCurrentProject.lock())
                 setCurrentProject(project);
+            if (!compilationDatabaseDir.isEmpty())
+                project->setCompilationDatabaseDir(compilationDatabaseDir);
             project->index(std::shared_ptr<IndexerJob>(new IndexerJob(source, IndexerJob::Compile, project)));
             ret = true;
         }
@@ -531,6 +534,7 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, co
         }
         CXCompileCommands cmds = clang_CompilationDatabase_getAllCompileCommands(db);
         const unsigned int sz = clang_CompileCommands_getSize(cmds);
+        Path project;
         for (unsigned int i = 0; i < sz; ++i) {
             CXCompileCommand cmd = clang_CompileCommands_getCommand(cmds, i);
             String args;
@@ -546,7 +550,13 @@ void Server::handleIndexMessage(const std::shared_ptr<IndexMessage> &message, co
                     args += " ";
             }
 
-            index(args, dir.ensureTrailingSlash(), message->pathEnvironment(), message->projectRoot(), message->flags());
+            index(args, dir.ensureTrailingSlash(), message->pathEnvironment(),
+                  message->projectRoot(), message->flags(), project);
+        }
+        if (!project.isEmpty()) {
+            std::shared_ptr<Project> proj = mProjects.value(project);
+            assert(proj);
+            proj->setCompilationDatabaseInfo(path, message->pathEnvironment(), message->flags());
         }
         clang_CompileCommands_dispose(cmds);
         clang_CompilationDatabase_dispose(db);
