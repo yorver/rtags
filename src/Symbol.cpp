@@ -103,11 +103,13 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
         return String::format<128>("Type: %s\n", str.constData());
     };
 
-    String ret = String::format<1024>("SymbolName: %s\n"
+    String ret = String::format<1024>("%s%s" // location
+                                      "SymbolName: %s\n"
                                       "Kind: %s\n"
                                       "%s" // type
                                       "SymbolLength: %u\n"
                                       "%s" // range
+                                      "%s%s" // instanceLocation
                                       "%s" // enumValue
                                       "%s" // linkage
                                       "%s" // properties
@@ -117,11 +119,15 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
                                       "%s" // baseclasses
                                       "%s" // briefComment
                                       "%s", // xmlComment
+                                      (cursorInfoFlags & NoLocation ? "" : location.key(keyFlags).constData()),
+                                      (cursorInfoFlags & NoLocation ? "" : "\n"),
                                       symbolName.constData(),
                                       kindSpelling().constData(),
                                       printTypeName().constData(),
                                       symbolLength,
                                       startLine != -1 ? String::format<32>("Range: %d:%d-%d:%d\n", startLine, startColumn, endLine, endColumn).constData() : "",
+                                      (cursorInfoFlags & NoLocation || instanceLocation.isNull() ? "" : location.key(keyFlags).constData()),
+                                      (cursorInfoFlags & NoLocation || instanceLocation.isNull() ? "" : "\n"),
 #if CINDEX_VERSION_MINOR > 1
                                       kind == CXCursor_EnumConstantDecl ? String::format<32>("Enum Value: %lld\n", enumValue).constData() :
 #endif
@@ -164,44 +170,44 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
     return ret;
 }
 
-String Symbol::kindSpelling(uint16_t kind)
-{
-    return kind ? RTags::eatString(clang_getCursorKindSpelling(static_cast<CXCursorKind>(kind))) : String("<none>");
-}
-
-String Symbol::displayName() const
-{
-    switch (kind) {
-    case CXCursor_FunctionTemplate:
-    case CXCursor_FunctionDecl:
-    case CXCursor_CXXMethod:
-    case CXCursor_Destructor:
-    case CXCursor_Constructor: {
-        const int end = symbolName.indexOf('(');
-        if (end != -1)
-            return symbolName.left(end);
-        break; }
-    case CXCursor_FieldDecl: {
-        int colon = symbolName.indexOf(':');
-        if (colon != -1) {
-            const int end = colon + 2;
-            while (colon > 0 && RTags::isSymbol(symbolName.at(colon - 1)))
-                --colon;
-            return symbolName.left(colon + 1) + symbolName.mid(end);
+        String Symbol::kindSpelling(uint16_t kind)
+        {
+            return kind ? RTags::eatString(clang_getCursorKindSpelling(static_cast<CXCursorKind>(kind))) : String("<none>");
         }
-        break; }
-    default:
-        break;
+
+    String Symbol::displayName() const
+    {
+        switch (kind) {
+        case CXCursor_FunctionTemplate:
+        case CXCursor_FunctionDecl:
+        case CXCursor_CXXMethod:
+        case CXCursor_Destructor:
+        case CXCursor_Constructor: {
+            const int end = symbolName.indexOf('(');
+            if (end != -1)
+                return symbolName.left(end);
+            break; }
+        case CXCursor_FieldDecl: {
+            int colon = symbolName.indexOf(':');
+            if (colon != -1) {
+                const int end = colon + 2;
+                while (colon > 0 && RTags::isSymbol(symbolName.at(colon - 1)))
+                    --colon;
+                return symbolName.left(colon + 1) + symbolName.mid(end);
+            }
+            break; }
+        default:
+            break;
+        }
+        return symbolName;
     }
-    return symbolName;
-}
 
-bool Symbol::isReference() const
-{
-    return RTags::isReference(kind) || (linkage == CXLinkage_External && !isDefinition() && !RTags::isFunction(kind));
-}
+    bool Symbol::isReference() const
+    {
+        return RTags::isReference(kind) || (linkage == CXLinkage_External && !isDefinition() && !RTags::isFunction(kind));
+    }
 
-bool Symbol::isContainer() const
-{
-    return RTags::isContainer(kind);
-}
+    bool Symbol::isContainer() const
+    {
+        return RTags::isContainer(kind);
+    }

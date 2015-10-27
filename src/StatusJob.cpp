@@ -148,7 +148,7 @@ int StatusJob::execute()
                 const Location loc = symbols->keyAt(i);
                 const Symbol c = symbols->valueAt(i);
                 write(loc);
-                write(c);
+                write(c, Symbol::NoLocation);
                 write("------------------------");
                 if (isAborted())
                     return 1;

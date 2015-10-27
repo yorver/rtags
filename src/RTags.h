@@ -38,7 +38,7 @@ namespace RTags {
 enum {
     MajorVersion = 2,
     MinorVersion = 0,
-    DatabaseVersion = 81,
+    DatabaseVersion = 82,
     SourcesFileVersion = 4
 };
 

@@ -36,7 +36,6 @@ int SymbolInfoJob::execute()
     int idx = -1;
     auto symbol = project()->findSymbol(location, &idx);
     if (!symbol.isNull()) {
-        write(symbol.location);
         write(symbol, toStringFlags);
         ret = 0;
     }
@@ -61,7 +60,6 @@ int SymbolInfoJob::execute()
                 && comparePosition(line, column, symbol.endLine, symbol.endColumn) <= 0) {
                 ret = 0;
                 write("====================");
-                write(symbol.location);
                 write(symbol, toStringFlags);
                 break;
             }

@@ -32,7 +32,7 @@ struct Symbol
           size(-1), fieldOffset(-1), alignment(-1)
     {}
 
-    Location location;
+    Location location, instanceLocation;
     String symbolName, usr, typeName;
     List<String> baseClasses;
     uint16_t symbolLength;
@@ -66,6 +66,7 @@ struct Symbol
     void clear()
     {
         location.clear();
+        instanceLocation.clear();
         symbolName.clear();
         usr.clear();
         typeName.clear();
@@ -112,9 +113,10 @@ struct Symbol
     inline bool isDefinition() const { return kind == CXCursor_EnumConstantDecl || definition; }
 
     enum ToStringFlag {
+        NoLocation = 0x4,
         IgnoreTargets = 0x1,
         IgnoreReferences = 0x2,
-        DefaultFlags = 0x0
+        DefaultFlags = NoLocation
     };
     String toString(Flags<ToStringFlag> toStringFlags = DefaultFlags,
                     Flags<Location::KeyFlag> = Flags<Location::KeyFlag>(),
@@ -130,7 +132,8 @@ RCT_FLAGS(Symbol::ToStringFlag);
 
 template <> inline Serializer &operator<<(Serializer &s, const Symbol &t)
 {
-    s << t.location << t.symbolName << t.usr << t.typeName << t.baseClasses << t.symbolLength
+    s << t.location << t.instanceLocation << t.symbolName
+      << t.usr << t.typeName << t.baseClasses << t.symbolLength
       << static_cast<uint16_t>(t.kind) << static_cast<uint16_t>(t.type)
       << static_cast<uint8_t>(t.linkage) << t.flags << t.briefComment << t.xmlComment
       << t.enumValue << t.startLine << t.endLine << t.startColumn << t.endColumn
@@ -142,7 +145,8 @@ template <> inline Deserializer &operator>>(Deserializer &s, Symbol &t)
 {
     uint16_t kind, type;
     uint8_t linkage;
-    s >> t.location >> t.symbolName >> t.usr >> t.typeName >> t.baseClasses
+    s >> t.location >> t.instanceLocation >> t.symbolName
+      >> t.usr >> t.typeName >> t.baseClasses
       >> t.symbolLength >> kind >> type >> linkage >> t.flags
       >> t.briefComment >> t.xmlComment >> t.enumValue
       >> t.startLine >> t.endLine >> t.startColumn >> t.endColumn
