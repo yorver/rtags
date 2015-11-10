@@ -75,6 +75,17 @@
 (defvar rtags-diagnostics-process nil)
 (defvar rtags-diagnostics-starting nil)
 
+(defun rtags-remove (predicate seq &optional not)
+  (let ((ret))
+    (while seq
+      (let ((matched (funcall predicate (car seq))))
+        (when (cond ((and matched not))
+                    ((and (not matched) (not not)))
+                    (t nil))
+          (setq ret (append ret (list (car seq)))))
+        (setq seq (cdr seq))))
+    ret))
+
 (defun rtags-is-indexable-default (buffer)
   (let ((filename (buffer-file-name buffer)))
     (when filename
@@ -646,7 +657,7 @@ to case differences."
         (when (and async (not (consp async)))
           (error "Invalid argument. async must be a cons or nil"))
         (setq arguments (rtags-remove-keyword-params arguments))
-        (setq arguments (cl-remove-if '(lambda (arg) (not arg)) arguments))
+        (setq arguments (rtags-remove '(lambda (arg) (not arg)) arguments))
         (when path-filter
           (push (concat "--path-filter=" path-filter) arguments)
           (when path-filter-regex
@@ -1778,11 +1789,15 @@ is true. References to references will be treated as references to the reference
 
 (defun rtags-really-find-buffer (fn)
   (setq fn (file-truename fn))
-  (car
-   (cl-member-if #'(lambda (arg)
-                     (and (buffer-file-name arg)
-                          (string= fn (file-truename (buffer-file-name arg)))))
-                 (buffer-list))))
+  (let ((ret)
+        (buffers (buffer-list)))
+    (while (and (not ret) buffers)
+      (let* ((filename (buffer-file-name (car buffers)))
+             (truename (and filename (file-truename filename))))
+        (if (and truename (string= fn truename))
+            (setq ret (car buffers))
+          (setq buffers (cdr buffers)))))
+    ret))
 
 (defvar rtags-error-warning-count nil)
 (make-variable-buffer-local 'rtags-error-warning-count)
@@ -2006,7 +2021,7 @@ is true. References to references will be treated as references to the reference
   (< (overlay-start l) (overlay-start r)))
 
 (defun rtags-overlays-on-screen ()
-  (sort (cl-remove-if-not 'rtags-is-rtags-overlay (overlays-in (window-start) (window-end))) #'rtags-overlay-comparator))
+  (sort (rtags-remove 'rtags-is-rtags-overlay (overlays-in (window-start) (window-end))) #'rtags-overlay-comparator t))
 
 (defvar rtags-highlighted-overlay nil)
 

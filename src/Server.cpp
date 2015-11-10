@@ -98,6 +98,8 @@ Path currentProjectPath()
     return Path();
 }
 
+#warning 1
+
 Server *Server::sInstance = 0;
 Server::Server()
     : mSuspended(false), mPathEnvironment(Rct::pathEnvironment()), mExitCode(0), mLastFileId(0), mCompletionThread(0)
@@ -106,8 +108,11 @@ Server::Server()
     sInstance = this;
 }
 
+#warning 2
+
 Server::~Server()
 {
+    foo();
     if (mCompletionThread) {
         mCompletionThread->stop();
         mCompletionThread->join();
