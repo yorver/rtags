@@ -613,6 +613,7 @@ CXChildVisitResult ClangIndexer::indexVisitor(CXCursor cursor, CXCursor parent, 
     if (type == RTags::Type_Other) {
         return CXChildVisit_Recurse;
     } else if (indexer->mRecurseState == TemplateRecurse && type != RTags::Type_Reference) {
+        error() << "RECURSED FOR" << type << indexer->createLocation(cursor);
         return CXChildVisit_Recurse;
     }
 
@@ -621,6 +622,7 @@ CXChildVisitResult ClangIndexer::indexVisitor(CXCursor cursor, CXCursor parent, 
     Location loc;
     if (indexer->mRecurseState == TemplateRecurse) {
         loc = indexer->createLocation(cursor);
+        error() << loc << cursor << clang_getCursorReferenced(cursor);
     } else {
         loc = indexer->createLocation(cursor, &blocked);
     }
