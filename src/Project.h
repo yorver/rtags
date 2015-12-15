@@ -40,8 +40,13 @@ class Match;
 class RestoreThread;
 struct DependencyNode
 {
-    DependencyNode(uint32_t f)
-        : fileId(f)
+    enum Flag {
+        None = 0x0,
+        HasExterns = 0x1,
+        HasTemplateInstantiations = 0x2
+    };
+    DependencyNode(uint32_t f, Flags<Flag> fl)
+        : fileId(f), flags(fl)
     {}
 
     void include(DependencyNode *dependee)
@@ -54,7 +59,10 @@ struct DependencyNode
 
     Dependencies dependents, includes;
     uint32_t fileId;
+    Flags<Flag> flags;
 };
+RCT_FLAGS(DependencyNode::Flag);
+
 class Project : public std::enable_shared_from_this<Project>
 {
 public:
@@ -154,7 +162,7 @@ public:
     Set<String> findTargetUsrs(const Location &loc);
     Set<Symbol> findSubclasses(const Symbol &symbol);
 
-    Set<Symbol> findByUsr(const String &usr, uint32_t fileId, DependencyMode mode, const Location &filtered = Location());
+    Set<Symbol> findByUsr(const String &usr, uint32_t fileId, DependencyMode mode);
 
     Path sourceFilePath(uint32_t fileId, const char *path = "") const;
 

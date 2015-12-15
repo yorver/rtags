@@ -179,7 +179,9 @@ static void loadDependencies(DataFile &file, Dependencies &dependencies)
     for (int i=0; i<size; ++i) {
         uint32_t fileId;
         file >> fileId;
-        dependencies[fileId] = new DependencyNode(fileId);
+        Flags<DependencyNode::Flag> flags;
+        file >> flags;
+        dependencies[fileId] = new DependencyNode(fileId, flags);
     }
     for (int i=0; i<size; ++i) {
         int links;
@@ -204,7 +206,7 @@ static void saveDependencies(DataFile &file, const Dependencies &dependencies)
 {
     file << dependencies.size();
     for (const auto &it : dependencies) {
-        file << it.first;
+        file << it.first << it.second->flags;
     }
     for (const auto &it : dependencies) {
         file << it.second->dependents.size();
@@ -1003,17 +1005,25 @@ void Project::updateDependencies(const std::shared_ptr<IndexDataMessage> &msg)
     Set<uint32_t> files;
     for (auto pair : msg->files()) {
         DependencyNode *&node = mDependencies[pair.first];
+        Flags<DependencyNode::Flag> flags;
+        if (pair.second & IndexDataMessage::HasExterns)
+            flags |= DependencyNode::HasExterns;
+        if (pair.second & IndexDataMessage::HasTemplateInstantiations)
+            flags |= DependencyNode::HasTemplateInstantiations;
         if (!node) {
-            node = new DependencyNode(pair.first);
+            node = new DependencyNode(pair.first, flags);
             if (pair.second & IndexDataMessage::Visited)
                 files.insert(pair.first);
         } else if (pair.second & IndexDataMessage::Visited) {
+            node->flags |= flags;
             files.insert(pair.first);
             if (prune) {
                 for (auto it : node->includes)
                     it.second->dependents.remove(pair.first);
                 node->includes.clear();
             }
+        } else {
+            node->flags |= flags;
         }
         watchFile(pair.first);
     }
@@ -1024,10 +1034,8 @@ void Project::updateDependencies(const std::shared_ptr<IndexDataMessage> &msg)
         DependencyNode *&inclusiary = mDependencies[it.second];
         files.insert(it.first);
         files.insert(it.second);
-        if (!includer)
-            includer = new DependencyNode(it.first);
-        if (!inclusiary)
-            inclusiary = new DependencyNode(it.second);
+        assert(includer);
+        assert(inclusiary);
         includer->include(inclusiary);
     }
 }
@@ -1395,44 +1403,61 @@ Symbol Project::findSymbol(const Location &location, int *index)
         *index = -1;
     if (location.isNull())
         return Symbol();
-    auto symbols = openSymbols(location.fileId());
-    if (!symbols || !symbols->count())
-        return Symbol();
 
-    bool exact = false;
-    int idx = symbols->lowerBound(location, &exact);
-    if (exact) {
-        if (index)
+    Symbol ret;
+    auto load = [this, &location, &ret, &index](uint32_t file) {
+        auto symbols = openSymbols(file);
+        if (!symbols || !symbols->count())
+            return false;
+
+        bool exact = false;
+        int idx = symbols->lowerBound(location, &exact);
+        if (exact) {
+            if (index && file == location.fileId())
+                *index = idx;
+            ret = symbols->valueAt(idx);
+            return true;
+        }
+        switch (idx) {
+            case 0:
+            return false;
+        case -1:
+            idx = symbols->count() - 1;
+            break;
+        default:
+            --idx;
+            break;
+        }
+
+        const Symbol &sym = symbols->valueAt(idx);
+        if (sym.location.fileId() != location.fileId()
+            || sym.location.line() != location.line()
+            || (location.column() - sym.location.column() >= sym.symbolLength)) {
+            return false;
+        }
+        ret = sym;
+        if (index && file == location.fileId())
             *index = idx;
-        return symbols->valueAt(idx);
-    }
-    switch (idx) {
-    case 0:
-        return Symbol();
-    case -1:
-        idx = symbols->count() - 1;
-        break;
-    default:
-        --idx;
-        break;
-    }
 
-    const Symbol &ret = symbols->valueAt(idx);
-    if (ret.location.fileId() != location.fileId()
-        || ret.location.line() != location.line()
-        || (location.column() - ret.location.column() >= ret.symbolLength)) {
-        return Symbol();
+        return true;
+    };
+    if (!load(location.fileId())) {
+        for (uint32_t file : dependencies(location.fileId(), DependsOnArg)) {
+            DependencyNode *node = mDependencies.value(file);
+            if (node && node->flags & (DependencyNode::HasExterns|DependencyNode::HasTemplateInstantiations) && load(file)) {
+                break;
+            }
+        }
     }
-    if (index)
-        *index = idx;
     return ret;
 }
 
 Set<Symbol> Project::findTargets(const Symbol &symbol)
 {
     Set<Symbol> ret;
-    if (symbol.isNull())
+    if (symbol.isNull()) {
         return ret;
+    }
     auto sameKind = [&symbol](CXCursorKind kind) {
         if (kind == symbol.kind)
             return true;
@@ -1455,7 +1480,7 @@ Set<Symbol> Project::findTargets(const Symbol &symbol)
     case CXCursor_VarDecl:
     case CXCursor_FunctionTemplate: {
         const Set<Symbol> symbols = findByUsr(symbol.usr, symbol.location.fileId(),
-                                              symbol.isDefinition() ? ArgDependsOn : DependsOnArg, symbol.location);
+                                              symbol.isDefinition() ? ArgDependsOn : DependsOnArg);
         for (const auto &c : symbols) {
             if (sameKind(c.kind) && symbol.isDefinition() != c.isDefinition()) {
                 ret.insert(c);
@@ -1476,7 +1501,7 @@ Set<Symbol> Project::findTargets(const Symbol &symbol)
     return ret;
 }
 
-Set<Symbol> Project::findByUsr(const String &usr, uint32_t fileId, DependencyMode mode, const Location &filtered)
+Set<Symbol> Project::findByUsr(const String &usr, uint32_t fileId, DependencyMode mode)
 {
     assert(fileId);
     Set<Symbol> ret;
@@ -1486,30 +1511,35 @@ Set<Symbol> Project::findByUsr(const String &usr, uint32_t fileId, DependencyMod
         ret.insert(sym);
         return ret;
     }
-    for (uint32_t file : dependencies(fileId, mode)) {
-        auto usrs = openUsrs(file);
+    bool hasDefinition = false;
+    const auto deps = dependencies(fileId, mode);
+    auto check = [this, &usr, &hasDefinition, &ret](uint32_t fileId) {
+        auto usrs = openUsrs(fileId);
         // error() << usrs << Location::path(file) << usr;
         if (usrs) {
             for (const Location &loc : usrs->value(usr)) {
                 // error() << "got a loc" << loc;
                 const Symbol c = findSymbol(loc);
-                if (!c.isNull())
+                if (!c.isNull()) {
+                    if (c.isDefinition())
+                        hasDefinition = true;
                     ret.insert(c);
+                }
             }
             // for (int i=0; i<usrs->count(); ++i) {
             //     error() << i << usrs->count() << usrs->keyAt(i) << usrs->valueAt(i);
             // }
         }
+    };
+    for (const auto &dep : mDependencies) {
+        if (dep.second->flags & (DependencyNode::HasTemplateInstantiations|DependencyNode::HasExterns) || deps.contains(dep.first)) {
+            check(dep.first);
+        }
     }
-    if (ret.isEmpty() || (!filtered.isNull() && ret.size() == 1 && ret.begin()->location == filtered)) {
+    if (!hasDefinition) {
         for (const auto &dep : mDependencies) {
-            auto usrs = openUsrs(dep.first);
-            if (usrs) {
-                for (const Location &loc : usrs->value(usr)) {
-                    const Symbol c = findSymbol(loc);
-                    if (!c.isNull())
-                        ret.insert(c);
-                }
+            if (!(dep.second->flags & (DependencyNode::HasTemplateInstantiations|DependencyNode::HasExterns)) && !deps.contains(dep.first)) {
+                check(dep.first);
             }
         }
     }
@@ -1587,8 +1617,7 @@ static Set<Symbol> findReferences(const Symbol &in,
     case CXCursor_ConversionFunction:
     case CXCursor_NamespaceAlias:
         inputs = project->findByUsr(s.usr, s.location.fileId(),
-                                    s.isDefinition() ? Project::ArgDependsOn : Project::DependsOnArg,
-                                    in.location);
+                                    s.isDefinition() ? Project::ArgDependsOn : Project::DependsOnArg);
         break;
     default:
         inputs.insert(s);
@@ -1625,7 +1654,7 @@ Set<Symbol> Project::findAllReferences(const Symbol &symbol)
 
     Set<Symbol> inputs;
     inputs.insert(symbol);
-    inputs.unite(findByUsr(symbol.usr, symbol.location.fileId(), DependsOnArg, symbol.location));
+    inputs.unite(findByUsr(symbol.usr, symbol.location.fileId(), DependsOnArg));
     Set<Symbol> ret = inputs;
     for (const auto &input : inputs) {
         Set<Symbol> inputLocations;
@@ -1681,12 +1710,25 @@ Set<Symbol> Project::findVirtuals(const Symbol &symbol)
 Set<String> Project::findTargetUsrs(const Location &loc)
 {
     Set<String> usrs;
-    auto targets = openTargets(loc.fileId());
-    if (targets) {
-        const int count = targets->count();
-        for (int i=0; i<count; ++i) {
-            if (targets->valueAt(i).contains(loc))
-                usrs.insert(targets->keyAt(i));
+    auto load = [&usrs, &loc, this](uint32_t fileId) {
+        auto targets = openTargets(fileId);
+        bool ret = false;
+        if (targets) {
+            const int count = targets->count();
+            for (int i=0; i<count; ++i) {
+                if (targets->valueAt(i).contains(loc)) {
+                    usrs.insert(targets->keyAt(i));
+                    ret = true;
+                }
+            }
+        }
+        return ret;
+    };
+    if (!load(loc.fileId())) {
+        for (uint32_t file : dependencies(loc.fileId(), DependsOnArg)) {
+            if (mDependencies[file]->flags & (DependencyNode::HasExterns|DependencyNode::HasTemplateInstantiations) && load(file)) {
+                break;
+            }
         }
     }
     return usrs;

@@ -311,7 +311,7 @@ bool QueryJob::write(const Symbol &symbol,
                 for (const auto &base : symbol.baseClasses) {
                     Symbol sym;
                     if (mode == Mode_Symbol) {
-                        for (const Symbol &s : project()->findByUsr(base, symbol.location.fileId(), Project::ArgDependsOn, symbol.location)) {
+                        for (const Symbol &s : project()->findByUsr(base, symbol.location.fileId(), Project::ArgDependsOn)) {
                             sym = s;
                             break;
                         }

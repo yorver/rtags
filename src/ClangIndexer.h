@@ -166,7 +166,12 @@ private:
     FILE *mLogFile;
     std::shared_ptr<Connection> mConnection;
     Path mDataDir;
-    bool mUnionRecursion;
+    enum RecurseState {
+        NoRecurse,
+        UnionRecurse,
+        TemplateRecurse
+    } mRecurseState;
+    uint32_t mTemplateRecurseFileId;
 
     static Flags<Server::Option> sServerOpts;
 };

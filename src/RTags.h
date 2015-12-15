@@ -51,7 +51,7 @@ namespace RTags {
 enum {
     MajorVersion = 2,
     MinorVersion = 0,
-    DatabaseVersion = 83,
+    DatabaseVersion = 84,
     SourcesFileVersion = 4
 };
 
@@ -536,6 +536,8 @@ inline int targetRank(CXCursorKind kind)
 {
     switch (kind) {
     case CXCursor_Constructor: // this one should be more than class/struct decl
+        return 2;
+    case CXCursor_TemplateTypeParameter:
         return 1;
     case CXCursor_ClassDecl:
     case CXCursor_StructDecl:
@@ -548,13 +550,49 @@ inline int targetRank(CXCursorKind kind)
         // functiondecl and cxx method must be more than cxx
         // CXCursor_FunctionTemplate. Since constructors for templatatized
         // objects seem to come out as function templates
-        return 3;
-    case CXCursor_MacroDefinition:
         return 4;
+    case CXCursor_MacroDefinition:
+        return 5;
     default:
-        return 2;
+        return 3;
     }
 }
+
+inline List<Symbol> filterTargets(const Set<Symbol> &targets)
+{
+    List<Symbol> sorted = targets.toList();
+    if (targets.size() > 1) {
+        sorted.sort([](const Symbol &l, const Symbol &r) {
+                const int lrank = targetRank(l.kind);
+                const int rrank = targetRank(r.kind);
+                if (lrank < rrank)
+                    return false;
+                if (lrank > rrank)
+                    return true;
+                if (l.isDefinition() != r.isDefinition()) {
+                    return l.isDefinition();
+                }
+                return l.location < r.location;
+            });
+        List<Symbol>::iterator it = sorted.begin();
+        Set<String> defineUsrs;
+        const int best = targetRank(sorted.front().kind);
+        while (it != sorted.end() && targetRank(it->kind) == best) {
+            if (it->isDefinition()) {
+                defineUsrs.insert(it->usr);
+                ++it;
+            } else if (defineUsrs.contains(it->usr)) {
+                it = sorted.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (it != sorted.end())
+            sorted.erase(it, sorted.end());
+    }
+    return sorted;
+}
+
 inline Symbol bestTarget(const Set<Symbol> &targets)
 {
     Symbol ret;
@@ -568,6 +606,7 @@ inline Symbol bestTarget(const Set<Symbol> &targets)
     }
     return ret;
 }
+
 static inline String xmlEscape(const String& xml)
 {
     if (xml.isEmpty())

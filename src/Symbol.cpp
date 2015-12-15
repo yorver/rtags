@@ -81,7 +81,7 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
     List<String> args;
     if (project) {
         for (const auto &base : baseClasses) {
-            for (const auto &sym : project->findByUsr(base, location.fileId(), Project::ArgDependsOn, location)) {
+            for (const auto &sym : project->findByUsr(base, location.fileId(), Project::ArgDependsOn)) {
                 bases << sym.symbolName;
                 break;
             }
