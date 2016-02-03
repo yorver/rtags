@@ -63,9 +63,15 @@ int ListSymbolsJob::execute()
 
     if (queryFlags() & QueryMessage::Elisp) {
         write("(list", IgnoreMax | DontQuote);
+        List<unsigned long long> times;
+        times.resize(out.size());
+        StopWatch sw;
+        int i = 0;
         for (Set<String>::const_iterator it = out.begin(); it != out.end(); ++it) {
             write(*it);
+            times[i++] = sw.elapsed();
         }
+        error() << times;
         write(")", IgnoreMax | DontQuote);
     } else {
         List<String> sorted = out.toList();
