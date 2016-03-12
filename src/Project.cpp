@@ -2370,3 +2370,80 @@ void Project::fixPCH(Source &source)
         }
     }
 }
+
+struct MutexOperation {
+    String usr;
+    enum MutexType {
+        None,
+        Lock,
+        Unlock
+    } type;
+
+    MutexOperation()
+        : type(None)
+    {}
+};
+
+static MutexOperation mutexOperation(const Symbol &symbol)
+{
+    switch (symbol.kind) {
+        // need to add c++11 mutex stuff
+    case CXCursor_FunctionDecl:
+        if (symbol.symbolName.startsWith("pthread_mutex_")) {
+            if (symbol.symbolName.size() == 18 && !strcmp(symbol.symbolName.c_str() + 14, "lock")) {
+
+            } else if (symbol.symbolName.size() == 20 && !strcmp(symbol.symbolName.c_str() + 14, "unlock")) {
+
+            }
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+Set<List<String> > Project::mutexStack(const Symbol &symbol)
+{
+    Set<String> seenUsrs;
+    std::function<List<String>(const Symbol &, const Location &)> recurse = [&](const Symbol &func, const Location &funcEnd) {
+        assert(RTags::isFunction(symbol.kind));
+        const bool inserted = seenUsrs.insert(func.usr);
+        assert(inserted);
+        (void)inserted;
+
+        List<String> ret;
+        auto symbols = openSymbols(func.location.fileId());
+        if (!symbols)
+            return ret;
+
+        bool exact;
+        uint32_t idx = symbols->lowerBound(func.location, &exact);
+        assert(static_cast<int>(idx) != -1);
+        const uint32_t count = symbols->count();
+        assert(exact);
+        while (++idx < count) {
+            const Location l = symbols->keyAt(idx);
+            if (l > funcEnd)
+                break;
+            const Symbol &sym = symbols->valueAt(idx);
+            if (RTags::isFunction(sym.kind)) {
+                if (sym.kind == CXCursor_FunctionDecl && symbol.symbolName.startsWith("pthread_mutex_")) {
+                    enum LockType {
+                        None,
+                        Lock,
+                        Unlock
+                    } lockType = None;
+                    if (symbol.symbolName.size() == 18 && !strcmp(symbol.symbolName.c_str() + 14, "lock")) {
+                        lockType = Lock;
+                    } else if (symbol.symbolName.size() == 20 && !strcmp(symbol.symbolName.c_str() + 14, "unlock")) {
+                        lockType = Unlock;
+                    }
+                }
+            }
+        }
+
+        return ret;
+    };
+    assert(symbol.isReference());
+
+}

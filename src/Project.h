@@ -155,6 +155,8 @@ public:
     Set<String> findTargetUsrs(const Location &loc);
     Set<Symbol> findSubclasses(const Symbol &symbol);
 
+    Set<List<String> > mutexStack(const Symbol &symbol);
+
     Set<Symbol> findByUsr(const String &usr, uint32_t fileId, DependencyMode mode, const Location &filtered = Location());
 
     Path sourceFilePath(uint32_t fileId, const char *path = "") const;
@@ -285,6 +287,7 @@ private:
                                                           Hash<uint32_t, std::shared_ptr<FileMap<Key, Value> > > &cache,
                                                           String *errPtr)
         {
+            assert(fileId);
             auto it = cache.find(fileId);
             if (it != cache.end()) {
                 poke(type, fileId);

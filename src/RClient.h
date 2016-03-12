@@ -30,7 +30,7 @@ class RClient
 {
 public:
     enum OptionType {
-        None = 0,
+        None,
         AbsolutePath,
         AllReferences,
         AllDependencies,
@@ -81,6 +81,7 @@ public:
         HasFileManager,
         Help,
         IncludeFile,
+        IncludeMutexStack,
         IMenu,
         IsIndexed,
         IsIndexing,

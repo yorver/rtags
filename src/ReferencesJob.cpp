@@ -60,6 +60,7 @@ int ReferencesJob::execute()
         };
         proj->findSymbols(symbolName, inserter, queryFlags());
     }
+    const bool mutexStack = queryFlags() & QueryMessage::IncludeMutexStack;
     const bool declarationOnly = queryFlags() & QueryMessage::DeclarationOnly;
     const bool definitionOnly = queryFlags() & QueryMessage::DefinitionOnly;
     Location startLocation;

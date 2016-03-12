@@ -127,6 +127,7 @@ struct Option opts[] = {
     { RClient::RangeFilter, "range-filter", 0, required_argument, "Filter out results not in the specified range." },
     { RClient::FilterSystemHeaders, "filter-system-headers", 'H', no_argument, "Don't exempt system headers from path filters." },
     { RClient::AllReferences, "all-references", 'e', no_argument, "Include definitions/declarations/constructors/destructors for references. Used for rename symbol." },
+    { RClient::IncludeMutexStack, "include-mutex-stack", 0, no_argument, "Include mutex stack in references." },
     { RClient::AllTargets, "all-targets", 0, no_argument, "Print all targets for -f. Used for debugging." },
     { RClient::Elisp, "elisp", 'Y', no_argument, "Output elisp: (list \"one\" \"two\" ...)." },
     { RClient::Diagnostics, "diagnostics", 'm', no_argument, "Receive async formatted diagnostics from rdm." },
@@ -657,6 +658,9 @@ RClient::ParseStatus RClient::parse(int &argc, char **argv)
             break;
         case AllReferences:
             mQueryFlags |= QueryMessage::AllReferences;
+            break;
+        case IncludeMutexStack:
+            mQueryFlags |= QueryMessage::IncludeMutexStack;
             break;
         case AllTargets:
             mQueryFlags |= QueryMessage::AllTargets;
