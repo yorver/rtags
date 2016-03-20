@@ -56,6 +56,7 @@ private:
             return Location();
         }
         Path path = RTags::eatString(fileName);
+        Location::resolvePathToRoot(path);
         uint32_t fileId = Location::fileId(path);
         if (!fileId) {
             path.resolve();

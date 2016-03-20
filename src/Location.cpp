@@ -14,6 +14,7 @@
    along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "Location.h"
+#include "ClangIndexer.h"
 
 #include "rct/Rct.h"
 #include "RTags.h"
@@ -122,6 +123,15 @@ String Location::context(Flags<ToStringFlag> flags, Hash<Path, String> *cache) c
         }
     }
     return ret;
+}
+
+const Path &Location::root()
+{
+    if (Server::instance()) {
+        return Server::instance()->options().root;
+    } else {
+        return ClangIndexer::serverRoot();
+    }
 }
 
 void Location::saveFileIds()

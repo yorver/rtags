@@ -1632,7 +1632,8 @@ void Server::setBuffers(const std::shared_ptr<QueryMessage> &query, const std::s
         List<Path> paths;
         deserializer >> paths;
         mActiveBuffers.clear();
-        for (const Path &path : paths) {
+        for (Path path : paths) {
+            Location::resolvePathToRoot(path);
             mActiveBuffers << Location::insertFile(path);
         }
         conn->write<32>("Added %zu buffers", mActiveBuffers.size());

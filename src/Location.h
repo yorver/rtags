@@ -83,6 +83,19 @@ public:
         LOCK();
         return sLastId;
     }
+    static const Path &root();
+    static void resolvePathToRoot(Path &path)
+    {
+        assert(!path.isEmpty());
+        if (*path.c_str() != '$') {
+            assert(path.isAbsolute());
+            const Path &r = root();
+            if (!r.isEmpty() && path.startsWith(r)) {
+                assert(r.endsWith('/'));
+                path.replace(0, r.size() - 1, "$");
+            }
+        }
+    }
 
     static inline uint32_t insertFile(const Path &path)
     {
@@ -168,6 +181,7 @@ public:
         memcpy(&col, data.constData() + data.size() - sizeof(col), sizeof(col));
         memcpy(&line, data.constData() + data.size() - sizeof(line) - sizeof(col), sizeof(line));
         Path path(data.constData(), data.size() - sizeof(col) - sizeof(line));
+        resolvePathToRoot(path);
         uint32_t fileId = Location::fileId(path);
         if (!fileId) {
             path.resolve();
