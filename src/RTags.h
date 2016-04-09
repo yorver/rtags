@@ -752,4 +752,15 @@ inline Log operator<<(Log dbg, CXLinkageKind kind)
     return dbg;
 }
 
+inline Log operator<<(Log dbg, CXAvailabilityKind kind)
+{
+    switch (kind) {
+    case CXAvailability_Available: dbg << "Available"; break;
+    case CXAvailability_Deprecated: dbg << "Deprecated"; break;
+    case CXAvailability_NotAvailable: dbg << "NotAvailable"; break;
+    case CXAvailability_NotAccessible: dbg << "NotAccessible"; break;
+    }
+    return dbg;
+}
+
 #endif
