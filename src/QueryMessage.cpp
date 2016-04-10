@@ -27,14 +27,16 @@ void QueryMessage::encode(Serializer &serializer) const
 {
     serializer << mRaw << mQuery << mType << mFlags << mMax
                << mMinLine << mMaxLine << mBuildIndex << mPathFilters << mKindFilters
-               << mCurrentFile << mUnsavedFiles << mTerminalWidth;
+               << mCurrentFile << mUnsavedFiles << mTerminalWidth
+               << mVisitAstScripts;
 }
 
 void QueryMessage::decode(Deserializer &deserializer)
 {
     deserializer >> mRaw >> mQuery >> mType >> mFlags >> mMax
                  >> mMinLine >> mMaxLine >> mBuildIndex >> mPathFilters >> mKindFilters
-                 >> mCurrentFile >> mUnsavedFiles >> mTerminalWidth;
+                 >> mCurrentFile >> mUnsavedFiles >> mTerminalWidth
+                 >> mVisitAstScripts;
 }
 
 Flags<Location::ToStringFlag> QueryMessage::locationToStringFlags(Flags<Flag> queryFlags)

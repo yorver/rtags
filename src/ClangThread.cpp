@@ -13,7 +13,7 @@
    You should have received a copy of the GNU General Public License
    along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
-#include "DumpThread.h"
+#include "ClangThread.h"
 
 #include "rct/Connection.h"
 #include "RTags.h"
@@ -27,8 +27,8 @@ struct Dep : public DependencyNode
     Hash<uint32_t, Map<Location, Location> > references;
 };
 
-DumpThread::DumpThread(const std::shared_ptr<QueryMessage> &queryMessage, const Source &source, const std::shared_ptr<Connection> &conn)
-    : Thread(), mQueryFlags(queryMessage->flags()), mSource(source), mConnection(conn), mIndentLevel(0), mAborted(false)
+ClangThread::ClangThread(const std::shared_ptr<QueryMessage> &queryMessage, const Source &source, const std::shared_ptr<Connection> &conn)
+    : Thread(), mQueryMessage(queryMessage), mSource(source), mConnection(conn), mIndentLevel(0), mAborted(false)
 {
     setAutoDelete(true);
 }
@@ -36,39 +36,42 @@ DumpThread::DumpThread(const std::shared_ptr<QueryMessage> &queryMessage, const 
 static const CXSourceLocation nullLocation = clang_getNullLocation();
 static const CXCursor nullCursor = clang_getNullCursor();
 
-CXChildVisitResult DumpThread::visitor(CXCursor cursor, CXCursor, CXClientData userData)
+CXChildVisitResult ClangThread::visitor(CXCursor cursor, CXCursor, CXClientData userData)
 {
-    DumpThread *that = reinterpret_cast<DumpThread*>(userData);
+    ClangThread *that = reinterpret_cast<ClangThread*>(userData);
     assert(that);
     return that->visit(cursor);
 }
 
-CXChildVisitResult DumpThread::visit(const CXCursor &cursor)
+CXChildVisitResult ClangThread::visit(const CXCursor &cursor)
 {
     if (isAborted())
         return CXChildVisit_Break;
     const Location location = createLocation(cursor);
     if (!location.isNull()) {
-        if (mQueryFlags & QueryMessage::DumpCheckIncludes) {
+        if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
             checkIncludes(location, cursor);
+            return CXChildVisit_Recurse;
+        } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
+            visitAST(location, cursor);
             return CXChildVisit_Recurse;
         } else {
             Flags<Location::ToStringFlag> locationFlags;
-            if (mQueryFlags & QueryMessage::NoColor)
+            if (mQueryMessage->flags() & QueryMessage::NoColor)
                 locationFlags |= Location::NoColor;
 
             CXSourceRange range = clang_getCursorExtent(cursor);
             CXSourceLocation rangeEnd = clang_getRangeEnd(range);
             unsigned int endLine, endColumn;
             clang_getPresumedLocation(rangeEnd, 0, &endLine, &endColumn);
-            if (!(mQueryFlags & QueryMessage::DumpIncludeHeaders) && location.fileId() != mSource.fileId) {
+            if (!(mQueryMessage->flags() & QueryMessage::DumpIncludeHeaders) && location.fileId() != mSource.fileId) {
                 return CXChildVisit_Continue;
             }
 
             String message;
             message.reserve(256);
 
-            if (!(mQueryFlags & QueryMessage::NoContext)) {
+            if (!(mQueryMessage->flags() & QueryMessage::NoContext)) {
                 message = location.context(locationFlags, &mContextCache);
             }
 
@@ -109,14 +112,14 @@ CXChildVisitResult DumpThread::visit(const CXCursor &cursor)
         }
     }
     ++mIndentLevel;
-    clang_visitChildren(cursor, DumpThread::visitor, this);
+    clang_visitChildren(cursor, ClangThread::visitor, this);
     if (isAborted())
         return CXChildVisit_Break;
     --mIndentLevel;
     return CXChildVisit_Continue;
 }
 
-void DumpThread::run()
+void ClangThread::run()
 {
     const auto key = mConnection->disconnected().connect([this](const std::shared_ptr<Connection> &) { abort(); });
 
@@ -125,26 +128,33 @@ void DumpThread::run()
     String clangLine;
     RTags::parseTranslationUnit(mSource.sourceFile(), mSource.toCommandLine(Source::Default), translationUnit,
                                 index, 0, 0, CXTranslationUnit_DetailedPreprocessingRecord, &clangLine);
-    if (!(mQueryFlags & QueryMessage::DumpCheckIncludes))
+    if (!(mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) && mQueryMessage->type() != QueryMessage::VisitAST)
         writeToConnetion(String::format<128>("Indexed: %s => %s", clangLine.constData(), translationUnit ? "success" : "failure"));
     if (translationUnit) {
-        clang_visitChildren(clang_getTranslationUnitCursor(translationUnit), DumpThread::visitor, this);
-        clang_disposeTranslationUnit(translationUnit);
+        clang_visitChildren(clang_getTranslationUnitCursor(translationUnit), ClangThread::visitor, this);
+    } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
+        writeToConnetion(String::format<1024>("{ \"file\": \"%s\", \"commandLine\": \"%s\", \"success\": false }",
+                                              mSource.sourceFile().constData(),
+                                              String::join(mSource.toCommandLine(Source::Default), ' ').constData()));
     }
 
-    clang_disposeIndex(index);
     mConnection->disconnected().disconnect(key);
-    std::weak_ptr<Connection> conn = mConnection;
-    if (mQueryFlags & QueryMessage::DumpCheckIncludes) {
+    if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
         checkIncludes();
     }
+    if (translationUnit)
+        clang_disposeTranslationUnit(translationUnit);
+
+    clang_disposeIndex(index);
+
+    std::weak_ptr<Connection> conn = mConnection;
     EventLoop::mainEventLoop()->callLater([conn]() {
             if (auto c = conn.lock())
                 c->finish();
         });
 }
 
-void DumpThread::writeToConnetion(const String &message)
+void ClangThread::writeToConnetion(const String &message)
 {
     std::weak_ptr<Connection> conn = mConnection;
     EventLoop::mainEventLoop()->callLater([conn, message]() {
@@ -154,7 +164,7 @@ void DumpThread::writeToConnetion(const String &message)
         });
 }
 
-void DumpThread::handleInclude(Location loc, const CXCursor &cursor)
+void ClangThread::handleInclude(Location loc, const CXCursor &cursor)
 {
     CXFile includedFile = clang_getIncludedFile(cursor);
     if (includedFile) {
@@ -177,7 +187,7 @@ void DumpThread::handleInclude(Location loc, const CXCursor &cursor)
     }
 }
 
-void DumpThread::handleReference(Location loc, const CXCursor &ref)
+void ClangThread::handleReference(Location loc, const CXCursor &ref)
 {
     if (clang_getCursorKind(ref) == CXCursor_Namespace)
         return;
@@ -193,7 +203,7 @@ void DumpThread::handleReference(Location loc, const CXCursor &ref)
     refs[loc] = refLoc;
 }
 
-void DumpThread::checkIncludes(Location location, const CXCursor &cursor)
+void ClangThread::checkIncludes(Location location, const CXCursor &cursor)
 {
     if (clang_getCursorKind(cursor) == CXCursor_InclusionDirective) {
         handleInclude(location, cursor);
@@ -241,7 +251,7 @@ static bool validateNeedsInclude(const Dep *source, const Dep *header, Set<uint3
     return false;
 }
 
-void DumpThread::checkIncludes()
+void ClangThread::checkIncludes()
 {
     for (const auto &it : mDependencies) {
         const Path path = Location::path(it.first);
@@ -285,4 +295,24 @@ void DumpThread::checkIncludes()
     for (auto it : mDependencies) {
         delete it.second;
     }
+}
+
+ClangThread::Cursor *ClangThread::addCursor(Location location, CXCursor cursor)
+{
+    const String usr = RTags::eatString(clang_getCursorUSR(cursor));
+    if (usr.isEmpty()) {
+        error() << "NO USR" << cursor;
+    }
+
+    return 0;
+}
+
+ClangThread::Type *ClangThread::addType(CXType /*type*/)
+{
+    return 0;
+}
+
+void ClangThread::visitAST(Location location, CXCursor cursor)
+{
+    addCursor(location, cursor);
 }

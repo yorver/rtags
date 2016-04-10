@@ -68,7 +68,8 @@ public:
         Sources,
         Status,
         Suspend,
-        SymbolInfo
+        SymbolInfo,
+        VisitAST
     };
 
     enum Flag {
@@ -140,6 +141,9 @@ public:
         std::sort(mPathFilters.begin(), mPathFilters.end());
     }
 
+    void setVisitASTScripts(const List<String> &scripts) { mVisitAstScripts = scripts; }
+    List<String> visitASTScripts() const { return mVisitAstScripts; }
+
     void setKindFilters(const Set<String> &kindFilters) { mKindFilters = kindFilters; }
     const Set<String> &kindFilters() const { return mKindFilters; }
 
@@ -210,6 +214,7 @@ private:
     Path mCurrentFile;
     UnsavedFiles mUnsavedFiles;
     int mTerminalWidth;
+    List<String> mVisitAstScripts;
 };
 
 inline Serializer &operator<<(Serializer &s, const QueryMessage::PathFilter &filter)
