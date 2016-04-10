@@ -23,18 +23,6 @@ uint16_t Symbol::targetsValue() const
     return RTags::createTargetsValue(kind, isDefinition());
 }
 
-static inline const char *linkageSpelling(CXLinkageKind kind)
-{
-    switch (kind) {
-    case CXLinkage_Invalid: return "";
-    case CXLinkage_NoLinkage: return "Linkage: No Linkage\n";
-    case CXLinkage_Internal: return "Linkage: Internal\n";
-    case CXLinkage_UniqueExternal: return "Linkage: Unique External\n";
-    case CXLinkage_External: return "Linkage: External\n";
-    }
-    return "";
-}
-
 String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
                         Flags<Location::ToStringFlag> locationToStringFlags,
                         const std::shared_ptr<Project> &project) const
@@ -140,7 +128,7 @@ String Symbol::toString(Flags<ToStringFlag> cursorInfoFlags,
 #else
                                       "",
 #endif
-                                      linkageSpelling(linkage),
+                                      linkage == CXLinkage_Invalid ? "" : String::format("Linkage: %s\n", RTags::linkageSpelling(linkage)).constData(),
                                       properties().constData(),
                                       usr.isEmpty() ? "" : String::format<64>("Usr: %s\n", usr.constData()).constData(),
                                       size > 0 ? String::format<16>("sizeof: %d\n", size).constData() : "",

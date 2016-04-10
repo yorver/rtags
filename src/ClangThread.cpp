@@ -14,6 +14,7 @@
    along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "ClangThread.h"
+#include "Symbol.h"
 
 #include "rct/Connection.h"
 #include "RTags.h"
@@ -53,7 +54,7 @@ CXChildVisitResult ClangThread::visit(const CXCursor &cursor)
             checkIncludes(location, cursor);
             return CXChildVisit_Recurse;
         } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
-            visitAST(location, cursor);
+            addCursor(cursor, location);
             return CXChildVisit_Recurse;
         } else {
             Flags<Location::ToStringFlag> locationFlags;
@@ -297,12 +298,78 @@ void ClangThread::checkIncludes()
     }
 }
 
-ClangThread::Cursor *ClangThread::addCursor(Location location, CXCursor cursor)
+ClangThread::Cursor *ClangThread::addCursor(CXCursor cursor, Location location)
 {
-    const String usr = RTags::eatString(clang_getCursorUSR(cursor));
-    if (usr.isEmpty()) {
-        error() << "NO USR" << cursor;
+    if (location.isNull()) {
+        location = createLocation(cursor);
+        if (location.isNull())
+            return 0;
     }
+
+    const String usr = RTags::eatString(clang_getCursorUSR(cursor));
+    if (!usr.isEmpty()) {
+        Cursor *ret = mCursorsByUsr.value(usr);
+        if (ret)
+            return ret;
+    }
+
+    std::shared_ptr<Cursor> c(new Cursor);
+    c->usr = usr;
+    c->location = location;
+    const CXSourceRange range = clang_getCursorExtent(cursor);
+    if (!clang_Range_isNull(range)) {
+        c->rangeStart = createLocation(clang_getRangeStart(range));
+        c->rangeEnd = createLocation(clang_getRangeEnd(range));
+    }
+    const CXCursor ref = clang_getCursorReferenced(cursor);
+    if (!clang_equalCursors(ref, nullCursor)) {
+        c->referenced = addCursor(ref);
+    }
+
+    if (!c->usr.isEmpty()) {
+        mCursorsByUsr[c->usr] = c.get();
+    }
+
+    c->kind = RTags::eatString(clang_getCursorKindSpelling(clang_getCursorKind(cursor)));
+    c->linkage = RTags::linkageSpelling(clang_getCursorLinkage(cursor));
+    c->spelling = RTags::eatString(clang_getCursorSpelling(cursor));
+    c->displayName = RTags::eatString(clang_getCursorDisplayName(cursor));
+    c->mangledName = RTags::eatString(clang_Cursor_getMangling(cursor));
+    const CXCursorKind templateKind = clang_getTemplateCursorKind(cursor);
+    if (templateKind != CXCursor_NoDeclFound) {
+        c->templateKind = RTags::eatString(clang_getCursorKindSpelling(templateKind));
+    }
+    c->lexicalParent = addCursor(clang_getCursorLexicalParent(cursor));
+    c->semanticParent = addCursor(clang_getCursorSemanticParent(cursor));
+    c->lexicalParent = addCursor(clang_getCursorSemanticParent(cursor));
+    c->canonical = addCursor(clang_getCanonicalCursor(cursor));
+    if (clang_isCursorDefinition(cursor)) {
+        c->flags |= Cursor::Definition;
+    } else {
+        c->definition = addCursor(clang_getCursorDefinition(cursor));
+    }
+    c->specializedCursorTemplate = addCursor(clang_getSpecializedCursorTemplate(cursor));
+
+    {
+        CXCursor *overridden;
+        unsigned int count;
+        clang_getOverriddenCursors(cursor, &overridden, &count);
+        if (overridden) {
+            for (unsigned i=0; i<count; ++i) {
+                if (Cursor *o = addCursor(overridden[i]))
+                    c->overridden.append(o);
+            }
+            clang_disposeOverriddenCursors(overridden);
+        }
+    }
+    {
+
+    }
+
+    // CINDEX_LINKAGE CXFile clang_getIncludedFile(CXCursor cursor);
+
+    c->type = addType(clang_getCursorType(cursor));
+    // c->type = addType(clang_getCursorType(cursor));
 
     return 0;
 }
@@ -310,9 +377,4 @@ ClangThread::Cursor *ClangThread::addCursor(Location location, CXCursor cursor)
 ClangThread::Type *ClangThread::addType(CXType /*type*/)
 {
     return 0;
-}
-
-void ClangThread::visitAST(Location location, CXCursor cursor)
-{
-    addCursor(location, cursor);
 }

@@ -572,6 +572,30 @@ inline int targetRank(CXCursorKind kind)
         return 2;
     }
 }
+
+inline const char *linkageSpelling(CXLinkageKind kind)
+{
+    switch (kind) {
+    case CXLinkage_Invalid: return "";
+    case CXLinkage_NoLinkage: return "no linkage";
+    case CXLinkage_Internal: return "internal";
+    case CXLinkage_UniqueExternal: return "unique external";
+    case CXLinkage_External: return "external";
+    }
+    return "";
+}
+
+inline const char *availabilitySpelling(CXAvailabilityKind kind)
+{
+    switch (kind) {
+    case CXAvailability_Available: return "available";
+    case CXAvailability_Deprecated: return "deprecated";
+    case CXAvailability_NotAvailable: return "not available";
+    case CXAvailability_NotAccessible: return "not accessible";
+    }
+    return "";
+}
+
 inline Symbol bestTarget(const Set<Symbol> &targets)
 {
     Symbol ret;

@@ -36,7 +36,6 @@ private:
     static CXChildVisitResult visitor(CXCursor cursor, CXCursor, CXClientData userData);
     CXChildVisitResult visit(const CXCursor &cursor);
     void checkIncludes(Location location, const CXCursor &cursor);
-    void visitAST(Location location, CXCursor cursor);
 
     void writeToConnetion(const String &message);
     Location createLocation(const CXSourceLocation &loc)
@@ -77,16 +76,16 @@ private:
     struct Cursor {
         Cursor()
             : referenced(0), lexicalParent(0), semanticParent(0),
-              overloadedDecl(0), canonical(0), definition(0), specializedCursorTemplate(0),
+              canonical(0), definition(0), specializedCursorTemplate(0),
               bitWidth(0), flags(0)
         {}
         Location location, rangeStart, rangeEnd;
         Path includedFile;
-        String usr, kind, linkage, availability, spelling, displayName, accessSpecifier, mangledName, templateCursorKind;
-        Cursor *referenced, *lexicalParent, *semanticParent, *overloadedDecl, *canonical, *definition, *specializedCursorTemplate;
+        String usr, kind, linkage, availability, spelling, displayName, mangledName, templateKind;
+        Cursor *referenced, *lexicalParent, *semanticParent, *canonical, *definition, *specializedCursorTemplate;
+        List<Cursor*> overridden, arguments, templateArgumentKinds, overloadedDecls;
         Type *type, *receiverType, *typedefUnderlyingType, *enumDeclIntegerType, *resultType;
         int bitWidth;
-        List<Cursor*> overridden, children, arguments, templateArgumentKinds;
         List<Type*> templateArgumentTypes;
         List<long long> templateArgumentValues; // how about unsigned?
 
@@ -123,11 +122,11 @@ private:
         unsigned flags;
         long long numElements, align, sizeOf;
     };
-    Cursor *addCursor(Location location, CXCursor cursor);
+    Cursor *addCursor(CXCursor cursor, Location location = Location());
     Type *addType(CXType type);
 
     Hash<String, Cursor*> mCursorsByUsr;
-    Map<Location, std::shared_ptr<Cursor> > mCursors;
+    Map<Location, List<std::shared_ptr<Cursor> > > mCursors;
     Hash<String, std::shared_ptr<Type> > mTypes;
 
     List<std::pair<Location, Location> > mSkippedRanges;
