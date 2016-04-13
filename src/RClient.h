@@ -44,6 +44,7 @@ public:
         Clear,
         CodeCompleteAt,
         CodeCompleteIncludeMacros,
+        CodeCompleteIncludeChunks,
         CompilationFlagsOnly,
         CompilationFlagsSplitLine,
         Compile,

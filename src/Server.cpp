@@ -1839,7 +1839,7 @@ void Server::codeCompleteAt(const std::shared_ptr<QueryMessage> &query, const st
     if (query->flags() & QueryMessage::XMLCompletions)
         flags |= CompletionThread::XML;
     if (query->flags() & QueryMessage::CodeCompleteIncludeMacros)
-        flags |= CompletionThread::CodeCompleteIncludeMacros;
+        flags |= CompletionThread::IncludeMacros;
     std::shared_ptr<Connection> c = conn;
     if (!(query->flags() & QueryMessage::SynchronousCompletions)) {
         c->finish();

@@ -171,6 +171,7 @@ struct Option opts[] = {
 #ifdef HAVE_SCRIPTENGINE
     { RClient::VisitASTScript, "visit-ast-script", 0, required_argument, "Use this script visit AST (@file.js|sourcecode)." },
 #endif
+    { RClient::CodeCompleteIncludeMacros, "code-complete-include-chunks", 0, no_argument, "Include chunks in code completion results." },
     { RClient::None, 0, 0, 0, 0 }
 };
 

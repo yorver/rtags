@@ -316,7 +316,7 @@ static inline bool needsQualifiers(CXCursorKind kind)
 }
 
 String typeName(const CXCursor &cursor);
-static inline const char *builtinTypeName(CXTypeKind kind)
+inline const char *builtinTypeName(CXTypeKind kind)
 {
     const char *ret = 0;
     switch (kind) {
@@ -342,10 +342,37 @@ static inline const char *builtinTypeName(CXTypeKind kind)
     case CXType_Float: ret = "float"; break;
     case CXType_Double: ret = "double"; break;
     case CXType_LongDouble: ret = "long double"; break;
-    default:
-        break;
+    default: break;
     }
     return ret;
+}
+
+inline const char *completionChunkKindSpelling(CXCompletionChunkKind kind)
+{
+    switch (kind) {
+    case CXCompletionChunk_Optional: return "Optional";
+    case CXCompletionChunk_TypedText: return "TypedText";
+    case CXCompletionChunk_Text: return "Text";
+    case CXCompletionChunk_Placeholder: return "Placeholder";
+    case CXCompletionChunk_Informative: return "Informative";
+    case CXCompletionChunk_CurrentParameter: return "CurrentParameter";
+    case CXCompletionChunk_LeftParen: return "LeftParen";
+    case CXCompletionChunk_RightParen: return "RightParen";
+    case CXCompletionChunk_LeftBracket: return "LeftBracket";
+    case CXCompletionChunk_RightBracket: return "RightBracket";
+    case CXCompletionChunk_LeftBrace: return "LeftBrace";
+    case CXCompletionChunk_RightBrace: return "RightBrace";
+    case CXCompletionChunk_LeftAngle: return "LeftAngle";
+    case CXCompletionChunk_RightAngle: return "RightAngle";
+    case CXCompletionChunk_Comma: return "Comma";
+    case CXCompletionChunk_ResultType: return "ResultType";
+    case CXCompletionChunk_Colon: return "Colon";
+    case CXCompletionChunk_SemiColon: return "SemiColon";
+    case CXCompletionChunk_Equal: return "Equal";
+    case CXCompletionChunk_HorizontalSpace: return "HorizontalSpace";
+    case CXCompletionChunk_VerticalSpace: return "VerticalSpace";
+    }
+    return 0;
 }
 
 String typeString(const CXType &type);
@@ -426,12 +453,12 @@ inline bool addTo(Container &container, const Value &value)
     return container.size() != oldSize;
 }
 
-static inline bool isSymbol(char ch)
+inline bool isSymbol(char ch)
 {
     return (isalnum(ch) || ch == '_' || ch == '~');
 }
 
-static inline bool isFunctionVariable(const String &entry)
+inline bool isFunctionVariable(const String &entry)
 {
     assert(entry.contains('('));
     const int endParen = entry.lastIndexOf(')');
@@ -448,7 +475,7 @@ static inline bool isFunctionVariable(const String &entry)
     return false;
 }
 
-static inline bool isOperator(char ch)
+inline bool isOperator(char ch)
 {
     switch (ch) {
     case '!':
@@ -591,7 +618,7 @@ inline Symbol bestTarget(const Set<Symbol> &targets)
     }
     return ret;
 }
-static inline String xmlEscape(const String& xml)
+inline String xmlEscape(const String& xml)
 {
     if (xml.isEmpty())
         return xml;
@@ -622,7 +649,7 @@ static inline String xmlEscape(const String& xml)
     return ret;
 }
 
-static inline const String elispEscape(const String &data)
+inline const String elispEscape(const String &data)
 {
     String ret;
     const int size = data.size();
@@ -691,7 +718,7 @@ inline Log operator<<(Log dbg, CXCursorKind kind);
 inline Log operator<<(Log dbg, CXTypeKind kind);
 inline Log operator<<(Log dbg, CXLinkageKind kind);
 
-static inline bool operator==(const CXCursor &l, const CXCursor &r) { return clang_equalCursors(l, r); }
+inline bool operator==(const CXCursor &l, const CXCursor &r) { return clang_equalCursors(l, r); }
 
 class CXStringScope
 {

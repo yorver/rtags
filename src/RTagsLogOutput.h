@@ -32,10 +32,11 @@ public:
     }
 
     enum Flag {
-        None = 0x0,
-        Elisp = 0x1,
-        XMLCompletions = 0x2,
-        NoSpellChecking = 0x4
+        None = 0x00,
+        Elisp = 0x01,
+        XMLCompletions = 0x02,
+        NoSpellChecking = 0x04,
+        JSONCompletions = 0x10
     };
 
     virtual unsigned int flags() const override { return mFlags; }
