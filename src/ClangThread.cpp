@@ -53,7 +53,7 @@ CXChildVisitResult ClangThread::visit(const CXCursor &cursor)
             checkIncludes(location, cursor);
             return CXChildVisit_Recurse;
         } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
-            visitAST(location, cursor);
+            visitAST(cursor, location);
             return CXChildVisit_Recurse;
         } else {
             Flags<Location::ToStringFlag> locationFlags;
@@ -318,13 +318,13 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     c->usr = usr;
     if (!c->usr.isEmpty())
         mCursorsByUsr[c->usr] = c.get();
-    c->kind = RTags::eatString(clang_getCursorKindSpelling(clang_getCursorKind(cursor)));
+    c->kind << clang_getCursorKindSpelling(clang_getCursorKind(cursor));
     Log(&c->linkage) << clang_getCursorLinkage(cursor);
     Log(&c->availability) << clang_getCursorAvailability(cursor);
-    c->spelling = RTags::eatString(clang_getCursorSpelling(cursor));
-    c->displayName = RTags::eatString(clang_getCursorDisplayName(cursor));
-    c->mangledName = RTags::eatString(clang_Cursor_getMangling(cursor));
-    c->templateCursorKind = RTags::eatString(clang_getCursorKindSpelling(clang_getTemplateCursorKind(cursor)));
+    c->spelling << clang_getCursorSpelling(cursor);
+    c->displayName << clang_getCursorDisplayName(cursor);
+    c->mangledName << clang_Cursor_getMangling(cursor);
+    c->templateCursorKind << clang_getCursorKindSpelling(clang_getTemplateCursorKind(cursor));
     c->referenced = visitAST(clang_getCursorReferenced(cursor));
     c->canonical = visitAST(clang_getCanonicalCursor(cursor));
     c->lexicalParent = visitAST(clang_getCursorLexicalParent(cursor));
@@ -335,4 +335,96 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     } else {
         c->definition = visitAST(clang_getCursorDefinition(cursor));
     }
+    {
+        CXCursor *overridden = 0;
+        unsigned count;
+        clang_getOverriddenCursors(cursor, &overridden, &count);
+        for (unsigned i=0; i<count; ++i) {
+            if (Cursor *cc = visitAST(overridden[i]))
+                c->overridden.append(cc);
+        }
+        clang_disposeOverriddenCursors(overridden);
+    }
+    c->bitFieldWidth = clang_getFieldDeclBitWidth(cursor);
+    {
+        const int count = clang_Cursor_getNumArguments(cursor);
+        for (int i=0; i<count; ++i) {
+            if (Cursor *cc = visitAST(clang_Cursor_getArgument(cursor, i))) {
+                c->arguments.append(cc);
+            }
+        }
+    }
+    {
+        const int count = clang_Cursor_getNumTemplateArguments(cursor);
+        c->templateArguments.resize(count);
+        for (int i=0; i<count; ++i) {
+            Log(&c->templateArguments[i].kind) << clang_Cursor_getTemplateArgumentKind(cursor, i);
+            c->templateArguments[i].value = clang_Cursor_getTemplateArgumentValue(cursor, i);
+            c->templateArguments[i].unsignedValue = clang_Cursor_getTemplateArgumentUnsignedValue(cursor, i);
+            c->templateArguments[i].type = createType(clang_Cursor_getTemplateArgumentType(cursor, i));
+        }
+    }
+    c->type = createType(clang_getCursorType(cursor));
+    c->receiverType = createType(clang_Cursor_getReceiverType(cursor));
+    c->typedefUnderlyingType = createType(clang_getTypedefDeclUnderlyingType(cursor));
+    c->enumDeclIntegerType = createType(clang_getEnumDeclIntegerType(cursor));
+    c->resultType = createType(clang_getCursorResultType(cursor));
+    if (clang_Cursor_isBitField(cursor))
+        c->flags |= Cursor::BitField;
+    if (clang_isVirtualBase(cursor))
+        c->flags |= Cursor::VirtualBase;
+    if (clang_Cursor_isDynamicCall(cursor))
+        c->flags |= Cursor::DynamicCall;
+    if (clang_Cursor_isVariadic(cursor))
+        c->flags |= Cursor::Variadic;
+    if (clang_CXXMethod_isVirtual(cursor))
+        c->flags |= Cursor::Virtual;
+    if (clang_CXXMethod_isPureVirtual(cursor))
+        c->flags |= Cursor::PureVirtual;
+    if (clang_CXXMethod_isStatic(cursor))
+        c->flags |= Cursor::Static;
+    if (clang_CXXMethod_isConst(cursor))
+        c->flags |= Cursor::Const;
+    mCursors[location].append(c);
+    return c.get();
+}
+
+ClangThread::Type *ClangThread::createType(const CXType &type)
+{
+    const String spelling = RTags::eatString(clang_getTypeSpelling(type));
+    if (spelling.isEmpty())
+        return 0;
+    std::shared_ptr<Type> &t = mTypes[spelling];
+    if (!t.get()) {
+        t.reset(new Type);
+        t->spelling = spelling;
+        t->kind << clang_getTypeKindSpelling(type.kind);
+        t->typeDeclaration = visitAST(clang_getTypeDeclaration(type));
+        Log(&t->callingConvention) << clang_getFunctionTypeCallingConv(type);
+        t->canonicalType = createType(clang_getCanonicalType(type));
+        t->resultType = createType(clang_getResultType(type));
+        if (clang_isConstQualifiedType(type))
+            t->flags |= Type::ConstQualified;
+        if (clang_isVolatileQualifiedType(type))
+            t->flags |= Type::VolatileQualified;
+        if (clang_isRestrictQualifiedType(type))
+            t->flags |= Type::RestrictQualified;
+        if (clang_isFunctionTypeVariadic(type))
+            t->flags |= Type::Variadic;
+
+        t->pointeeType = createType(clang_getPointeeType(type));
+
+        {
+            const int count = clang_getNumArgTypes(type);
+            for (int i=0; i<count; ++i) {
+                if (Type *tt = createType(clang_getArgType(type, i))) {
+                    t->arguments.append(tt);
+                }
+            }
+
+
+        }
+    }
+
+    return t.get();
 }

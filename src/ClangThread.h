@@ -38,6 +38,8 @@ private:
     void checkIncludes(Location location, const CXCursor &cursor);
     struct Cursor;
     Cursor *visitAST(const CXCursor &cursor, Location location = Location());
+    struct Type;
+    Type *createType(const CXType &type);
 
     void writeToConnetion(const String &message);
     Location createLocation(const CXSourceLocation &loc)
@@ -74,22 +76,26 @@ private:
     void handleReference(Location loc, const CXCursor &ref);
     void checkIncludes();
 
-    struct Type;
     struct Cursor {
         Cursor()
             : referenced(0), lexicalParent(0), semanticParent(0),
               canonical(0), definition(0), specializedCursorTemplate(0),
-              bitWidth(0), flags(0)
+              bitFieldWidth(-1), flags(0)
         {}
         Location location, rangeStart, rangeEnd;
         Path includedFile;
         String usr, kind, linkage, availability, spelling, displayName, mangledName, templateCursorKind;
         Cursor *referenced, *lexicalParent, *semanticParent, *canonical, *definition, *specializedCursorTemplate;
+        List<Cursor*> overridden, arguments, overloadedDecls;
+        int bitFieldWidth;
+        struct TemplateArgument {
+            String kind;
+            long long value;
+            unsigned long long unsignedValue;
+            Type *type;
+        };
+        List<TemplateArgument> templateArguments;
         Type *type, *receiverType, *typedefUnderlyingType, *enumDeclIntegerType, *resultType;
-        int bitWidth;
-        List<Cursor*> overridden, children, arguments, templateArgumentKinds, overloadedDecls;
-        List<Type*> templateArgumentTypes;
-        List<long long> templateArgumentValues; // how about unsigned?
 
         enum Flag {
             None = 0x00,
@@ -111,24 +117,27 @@ private:
 
     struct Type {
         Type()
-            : flags(0), numElements(-1), sizeOf(-1)
+            : canonicalType(0), pointeeType(0), resultType(0), typeDeclaration(0),
+              flags(0), numElements(-1), align(-1), sizeOf(-1)
         {}
-        String kind, spelling, element, arrayElementType, referenceType;
-        Type *underlyingType, *canonicalType, *pointeeType;
+        String spelling, name, kind, element, arrayElementType, referenceType, callingConvention;
+        Type *canonicalType, *pointeeType, *resultType;
         Cursor *typeDeclaration;
         List<String> args, templateArgs;
         enum Flag {
             None = 0x00,
-            Const = 0x01,
-            Volatile = 0x02,
-            Restrict = 0x04,
-            Variadic = 0x08
+            ConstQualified = 0x01,
+            VolatileQualified = 0x02,
+            RestrictQualified = 0x04,
+            Variadic = 0x08,
+            RValue = 0x10,
+            LValue = 0x20,
+            POD = 0x40
         };
         unsigned flags;
         long long numElements, align, sizeOf;
     };
     Hash<String, std::shared_ptr<Type> > mTypes;
-
     List<std::pair<Location, Location> > mSkippedRanges;
     // ### diagnostics?
 
