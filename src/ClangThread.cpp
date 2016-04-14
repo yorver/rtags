@@ -505,6 +505,16 @@ void ClangThread::dumpJSON(CXTranslationUnit unit)
         }
     }
 #endif
+    {
+        const unsigned int diagnosticCount = clang_getNumDiagnostics(unit);
+
+        for (unsigned int i=0; i<diagnosticCount; ++i) {
+            CXDiagnostic diagnostic = clang_getDiagnostic(unit, i);
+            diagnostics,append(diagnosticToValue(diagnostic));
+            clang_disposeDiagnostic(diagnostic);
+        }
+    }
+
 }
 
 Value ClangThread::Cursor::toValue() const
@@ -514,4 +524,8 @@ Value ClangThread::Cursor::toValue() const
 Value ClangThread::Type::toValue() const
 {
 
+}
+
+Value ClangThread::diagnosticToValue(CXDiagnostic diagnostics)
+{
 }

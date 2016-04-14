@@ -144,6 +144,8 @@ private:
         unsigned flags;
         long long numElements, arraySize, align, sizeOf;
     };
+
+    static Value diagnosticToValue(CXDiagnostic diagnostics);
     List<std::shared_ptr<Type> > mTypes;
     Hash<String, Type*> mTypesBySpelling;
 
