@@ -21,6 +21,7 @@
 #include "Project.h"
 #include "QueryMessage.h"
 #include "rct/Thread.h"
+#include "rct/Value.h"
 #include "Source.h"
 
 class Connection;
@@ -40,6 +41,7 @@ private:
     Cursor *visitAST(const CXCursor &cursor, Location location = Location());
     struct Type;
     Type *createType(const CXType &type);
+    void dumpJSON(CXTranslationUnit unit);
 
     void writeToConnetion(const String &message);
     Location createLocation(const CXSourceLocation &loc)
@@ -78,10 +80,11 @@ private:
 
     struct Cursor {
         Cursor()
-            : referenced(0), lexicalParent(0), semanticParent(0),
+            : id(0), referenced(0), lexicalParent(0), semanticParent(0),
               canonical(0), definition(0), specializedCursorTemplate(0),
               bitFieldWidth(-1), flags(0)
         {}
+        uint32_t id;
         Location location, rangeStart, rangeEnd;
         Path includedFile;
         String usr, kind, linkage, availability, spelling, displayName, mangledName, templateCursorKind;
@@ -109,21 +112,24 @@ private:
             Static = 0x080,
             Const = 0x100
         };
+        Value toValue() const;
 
         unsigned flags;
     };
-    Map<Location, List<std::shared_ptr<Cursor> > > mCursors;
+    List<Cursor*> mCursors;
     Hash<String, Cursor*> mCursorsByUsr;
 
     struct Type {
         Type()
-            : canonicalType(0), pointeeType(0), resultType(0), typeDeclaration(0),
-              flags(0), numElements(-1), align(-1), sizeOf(-1)
+            : id(0), canonicalType(0), pointeeType(0), resultType(0), elementType(0),
+              arrayElementType(0), classType(0), typeDeclaration(0), flags(0),
+              numElements(-1), arraySize(-1), align(-1), sizeOf(-1)
         {}
-        String spelling, name, kind, element, arrayElementType, referenceType, callingConvention;
-        Type *canonicalType, *pointeeType, *resultType;
+        uint32_t id;
+        String spelling, kind, element, referenceType, callingConvention;
+        Type *canonicalType, *pointeeType, *resultType, *elementType, *arrayElementType, *classType;
+        List<Type*> arguments, templateArguments;
         Cursor *typeDeclaration;
-        List<String> args, templateArgs;
         enum Flag {
             None = 0x00,
             ConstQualified = 0x01,
@@ -134,12 +140,12 @@ private:
             LValue = 0x20,
             POD = 0x40
         };
+        Value toValue() const;
         unsigned flags;
-        long long numElements, align, sizeOf;
+        long long numElements, arraySize, align, sizeOf;
     };
-    Hash<String, std::shared_ptr<Type> > mTypes;
-    List<std::pair<Location, Location> > mSkippedRanges;
-    // ### diagnostics?
+    List<std::shared_ptr<Type> > mTypes;
+    Hash<String, Type*> mTypesBySpelling;
 
     const std::shared_ptr<QueryMessage> mQueryMessage;
     const Source mSource;

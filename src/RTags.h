@@ -803,6 +803,19 @@ inline Log operator<<(Log dbg, CXCallingConv conv)
     return dbg;
 }
 
+inline Log operator<<(Log dbg, CXTypeLayoutError err)
+{
+    switch (err) {
+    case CXTypeLayoutError_Invalid: dbg << "Invalid"; break;
+    case CXTypeLayoutError_Incomplete: dbg << "Incomplete"; break;
+    case CXTypeLayoutError_Dependent: dbg << "Dependent"; break;
+    case CXTypeLayoutError_NotConstantSize: dbg << "NotConstantSize"; break;
+    case CXTypeLayoutError_InvalidFieldName: dbg << "InvalidFieldName"; break;
+    }
+    return dbg;
+};
+
+
 inline String &operator<<(String &str, CXString cxstr)
 {
     if (const char *cstr = clang_getCString(cxstr))

@@ -14,8 +14,8 @@
    along with RTags.  If not, see <http://www.gnu.org/licenses/>. */
 
 #include "ClangThread.h"
-
 #include "rct/Connection.h"
+
 #include "RTags.h"
 #include "Server.h"
 
@@ -27,8 +27,10 @@ struct Dep : public DependencyNode
     Hash<uint32_t, Map<Location, Location> > references;
 };
 
-ClangThread::ClangThread(const std::shared_ptr<QueryMessage> &queryMessage, const Source &source, const std::shared_ptr<Connection> &conn)
-    : Thread(), mQueryMessage(queryMessage), mSource(source), mConnection(conn), mIndentLevel(0), mAborted(false)
+ClangThread::ClangThread(const std::shared_ptr<QueryMessage> &queryMessage,
+                         const Source &source, const std::shared_ptr<Connection> &conn)
+    : Thread(), mQueryMessage(queryMessage), mSource(source), mConnection(conn),
+      mIndentLevel(0), mAborted(false)
 {
     setAutoDelete(true);
 }
@@ -128,25 +130,27 @@ void ClangThread::run()
     String clangLine;
     RTags::parseTranslationUnit(mSource.sourceFile(), mSource.toCommandLine(Source::Default), translationUnit,
                                 index, 0, 0, CXTranslationUnit_DetailedPreprocessingRecord, &clangLine);
-    if (!(mQueryMessage->flags() & QueryMessage::DumpCheckIncludes))
+    if (mQueryMessage->type() == QueryMessage::DumpFile && !(mQueryMessage->flags() & QueryMessage::DumpCheckIncludes))
         writeToConnetion(String::format<128>("Indexed: %s => %s", clangLine.constData(), translationUnit ? "success" : "failure"));
     if (translationUnit) {
         clang_visitChildren(clang_getTranslationUnitCursor(translationUnit), ClangThread::visitor, this);
+        if (mQueryMessage->type() == QueryMessage::VisitAST) {
+            dumpJSON(translationUnit);
+        } else if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
+            checkIncludes();
+        }
     } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
         writeToConnetion(String::format<1024>("{ \"file\": \"%s\", \"commandLine\": \"%s\", \"success\": false }",
                                               mSource.sourceFile().constData(),
                                               String::join(mSource.toCommandLine(Source::Default), ' ').constData()));
     }
 
-    mConnection->disconnected().disconnect(key);
-    if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
-        checkIncludes();
-    }
     if (translationUnit)
         clang_disposeTranslationUnit(translationUnit);
 
     clang_disposeIndex(index);
 
+    mConnection->disconnected().disconnect(key);
     std::weak_ptr<Connection> conn = mConnection;
     EventLoop::mainEventLoop()->callLater([conn]() {
             if (auto c = conn.lock())
@@ -385,46 +389,129 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
         c->flags |= Cursor::Static;
     if (clang_CXXMethod_isConst(cursor))
         c->flags |= Cursor::Const;
-    mCursors[location].append(c);
+    c->id = mCursors.size();
+    mCursors.append(c.get());
     return c.get();
 }
-
 ClangThread::Type *ClangThread::createType(const CXType &type)
 {
     const String spelling = RTags::eatString(clang_getTypeSpelling(type));
     if (spelling.isEmpty())
         return 0;
-    std::shared_ptr<Type> &t = mTypes[spelling];
-    if (!t.get()) {
-        t.reset(new Type);
-        t->spelling = spelling;
-        t->kind << clang_getTypeKindSpelling(type.kind);
-        t->typeDeclaration = visitAST(clang_getTypeDeclaration(type));
-        Log(&t->callingConvention) << clang_getFunctionTypeCallingConv(type);
-        t->canonicalType = createType(clang_getCanonicalType(type));
-        t->resultType = createType(clang_getResultType(type));
-        if (clang_isConstQualifiedType(type))
-            t->flags |= Type::ConstQualified;
-        if (clang_isVolatileQualifiedType(type))
-            t->flags |= Type::VolatileQualified;
-        if (clang_isRestrictQualifiedType(type))
-            t->flags |= Type::RestrictQualified;
-        if (clang_isFunctionTypeVariadic(type))
-            t->flags |= Type::Variadic;
+    Type *&t = mTypesBySpelling[spelling];
+    if (t)
+        return t;
+    t = new Type;
+    t->id = mTypes.size();
+    mTypes.append(std::shared_ptr<Type>(t));
+    t->spelling = spelling;
+    t->kind << clang_getTypeKindSpelling(type.kind);
+    t->typeDeclaration = visitAST(clang_getTypeDeclaration(type));
+    t->numElements = clang_getNumElements(type);
+    t->align = clang_Type_getAlignOf(type);
+    t->sizeOf = clang_Type_getSizeOf(type);
+    t->numElements = clang_getNumElements(type);
+    t->arraySize = clang_getArraySize(type);
+    Log(&t->callingConvention) << clang_getFunctionTypeCallingConv(type);
+    Log(&t->callingConvention) << clang_getFunctionTypeCallingConv(type);
+    if (clang_isConstQualifiedType(type))
+        t->flags |= Type::ConstQualified;
+    if (clang_isVolatileQualifiedType(type))
+        t->flags |= Type::VolatileQualified;
+    if (clang_isRestrictQualifiedType(type))
+        t->flags |= Type::RestrictQualified;
+    if (clang_isFunctionTypeVariadic(type))
+        t->flags |= Type::Variadic;
+    if (clang_isPODType(type))
+        t->flags |= Type::POD;
 
-        t->pointeeType = createType(clang_getPointeeType(type));
-
-        {
-            const int count = clang_getNumArgTypes(type);
-            for (int i=0; i<count; ++i) {
-                if (Type *tt = createType(clang_getArgType(type, i))) {
-                    t->arguments.append(tt);
-                }
+    t->pointeeType = createType(clang_getPointeeType(type));
+    t->elementType = createType(clang_getElementType(type));
+    t->canonicalType = createType(clang_getCanonicalType(type));
+    t->resultType = createType(clang_getResultType(type));
+    t->arrayElementType = createType(clang_getArrayElementType(type));
+    t->classType = createType(clang_Type_getClassType(type));
+    {
+        const int count = clang_getNumArgTypes(type);
+        for (int i=0; i<count; ++i) {
+            if (Type *tt = createType(clang_getArgType(type, i))) {
+                t->arguments.append(tt);
             }
-
-
         }
     }
+    {
+        const int count = clang_Type_getNumTemplateArguments(type);
+        for (int i=0; i<count; ++i) {
+            if (Type *tt = createType(clang_Type_getTemplateArgumentAsType(type, i))) {
+                t->templateArguments.append(tt);
+            }
+        }
+    }
+    switch (clang_Type_getCXXRefQualifier(type)) {
+    case CXRefQualifier_None:
+        break;
+    case CXRefQualifier_LValue:
+        t->flags |= Type::LValue;
+        break;
+    case CXRefQualifier_RValue:
+        t->flags |= Type::RValue;
+        break;
+    }
+    return t;
+}
 
-    return t.get();
+void ClangThread::dumpJSON(CXTranslationUnit unit)
+{
+    Value out;
+    Set<uint32_t> files;
+    Value &cursors = out["cursors"];
+    Value &types = out["types"];
+    Value &skippedRanges = out["skippedRanges"];
+    Value &diagnostics = out["diagnostics"];
+    for (const auto &t : mTypes) {
+        types.push_back(t->toValue());
+    }
+    for (const auto &c : mCursors) {
+        files.insert(c->location.fileId());
+        cursors.push_back(c->toValue());
+    }
+#if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 21)
+    for (uint32_t fileId : files) {
+        const Path path = Location::path(fileId);
+        const CXFile file = clang_getFile(unit, path.constData());
+        if (!file)
+            continue;
+        if (CXSourceRangeList *skipped = clang_getSkippedRanges(unit, file)) {
+            const unsigned int count = skipped->count;
+            assert(count);
+            Value &skippedFile = skippedRanges[path];
+            for (unsigned int i=0; i<count; ++i) {
+                const CXSourceLocation start = clang_getRangeStart(skipped->ranges[i]);
+                const CXSourceLocation end = clang_getRangeEnd(skipped->ranges[i]);
+                unsigned int startLine, startColumn, startOffset, endLine, endColumn, endOffset;
+                clang_getSpellingLocation(start, 0, &startLine, &startColumn, &startOffset);
+                clang_getSpellingLocation(end, 0, &endLine, &endColumn, &endOffset);
+                Value range;
+                range["startLine"] = startLine;
+                range["startColumn"] = startLine;
+                range["startOffset"] = startLine;
+                range["endLine"] = endLine;
+                range["endColumn"] = endLine;
+                range["endOffset"] = endLine;
+                skippedFile.push_back(range);
+            }
+
+            clang_disposeSourceRangeList(skipped);
+        }
+    }
+#endif
+}
+
+Value ClangThread::Cursor::toValue() const
+{
+}
+
+Value ClangThread::Type::toValue() const
+{
+
 }
