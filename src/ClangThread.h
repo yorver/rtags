@@ -44,7 +44,7 @@ private:
     void dumpJSON(CXTranslationUnit unit);
 
     void writeToConnetion(const String &message);
-    Location createLocation(const CXSourceLocation &loc)
+    static Location createLocation(CXSourceLocation loc)
     {
         CXString fileName;
         unsigned int line, col;
@@ -70,7 +70,7 @@ private:
         return Location(fileId, line, col);
     }
 
-    Location createLocation(const CXCursor &cursor)
+    static Location createLocation(const CXCursor &cursor)
     {
         return createLocation(clang_getCursorLocation(cursor));
     }
@@ -146,6 +146,7 @@ private:
     };
 
     static Value diagnosticToValue(CXDiagnostic diagnostics);
+    static Value locationToValue(Location location);
     List<std::shared_ptr<Type> > mTypes;
     Hash<String, Type*> mTypesBySpelling;
 

@@ -529,14 +529,53 @@ Value ClangThread::Type::toValue() const
 Value ClangThread::diagnosticToValue(CXDiagnostic diagnostic)
 {
     Value ret;
+    String severity;
+    Log(&severity) << clang_getDiagnosticSeverity(diagnostic);
+    ret["severity"] = severity;
+    String spelling;
+    spelling << clang_getDiagnosticSpelling(diagnostic);
+    ret["spelling"] = spelling;
+    ret["location"] = locationToValue(createLocation(clang_getDiagnosticLocation(diagnostic)));
+    CXString disable;
+    ret["option"] = RTags::eatString(clang_getDiagnosticOption(diagnostic, &disable));
+    ret["disable"] = RTags::eatString(disable);
+    ret["category"] = RTags::eatString(clang_getDiagnosticCategoryText(diagnostic));
+    const unsigned rangeCount = clang_getDiagnosticNumRanges(diagnostic);
+    if (rangeCount) {
+        Value &ranges = ret["ranges"];
+        for (unsigned i=0; i<rangeCount; ++i) {
+            const CXSourceRange range = clang_getDiagnosticRange(diagnostic, i);
+            Value v;
+            v["start"] = locationToValue(createLocation(clang_getRangeStart(range)));
+            v["end"] = locationToValue(createLocation(clang_getRangeEnd(range)));
+            ranges.push_back(v);
+        }
+    }
+
+    const unsigned fixitCount = clang_getDiagnosticNumFixIts(diagnostic);
+    if (fixitCount) {
+        // Value &ranges = ret["ranges"];
+        // for (unsigned i=0; i<rangeCount; ++i) {
+        //     const CXSourceRange range = clang_getDiagnosticRange(diagnostic, i);
+        //     Value v;
+        //     v["start"] = locationToValue(createLocation(clang_getRangeStart(range)));
+        //     v["end"] = locationToValue(createLocation(clang_getRangeEnd(range)));
+        //     ranges.push_back(v);
+        // }
+    }
+
     CXDiagnosticSet children = clang_getChildDiagnostics(diagnostic);
     const unsigned diagnosticCount = clang_getNumDiagnosticsInSet(children);
     if (diagnosticCount) {
-        Value &children = ret["children"];
+        Value &c = ret["children"];
         for (unsigned i=0; i<diagnosticCount; ++i) {
             CXDiagnostic child = clang_getDiagnosticInSet(children, i);
-            children.push_back(diagnosticToValue(child));
+            c.push_back(diagnosticToValue(child));
             clang_disposeDiagnostic(child);
         }
     }
  }
+
+Value ClangThread::locationToValue(Location location)
+{
+}
