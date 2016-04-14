@@ -510,7 +510,7 @@ void ClangThread::dumpJSON(CXTranslationUnit unit)
 
         for (unsigned int i=0; i<diagnosticCount; ++i) {
             CXDiagnostic diagnostic = clang_getDiagnostic(unit, i);
-            diagnostics,append(diagnosticToValue(diagnostic));
+            diagnostics.push_back(diagnosticToValue(diagnostic));
             clang_disposeDiagnostic(diagnostic);
         }
     }
@@ -526,6 +526,17 @@ Value ClangThread::Type::toValue() const
 
 }
 
-Value ClangThread::diagnosticToValue(CXDiagnostic diagnostics)
+Value ClangThread::diagnosticToValue(CXDiagnostic diagnostic)
 {
-}
+    Value ret;
+    CXDiagnosticSet children = clang_getChildDiagnostics(diagnostic);
+    const unsigned diagnosticCount = clang_getNumDiagnosticsInSet(children);
+    if (diagnosticCount) {
+        Value &children = ret["children"];
+        for (unsigned i=0; i<diagnosticCount; ++i) {
+            CXDiagnostic child = clang_getDiagnosticInSet(children, i);
+            children.push_back(diagnosticToValue(child));
+            clang_disposeDiagnostic(child);
+        }
+    }
+ }
