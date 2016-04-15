@@ -804,7 +804,7 @@ inline Log operator<<(Log dbg, CXCallingConv conv)
     case CXCallingConv_X86Pascal: dbg << "X86Pascal"; break;
     case CXCallingConv_AAPCS: dbg << "AAPCS"; break;
     case CXCallingConv_AAPCS_VFP: dbg << "AAPCS_VFP"; break;
-    case CXCallingConv_PnaclCall: dbg << "PnaclCall"; break;
+    /* case CXCallingConv_PnaclCall: dbg << "PnaclCall"; break; */
     case CXCallingConv_IntelOclBicc: dbg << "IntelOclBicc"; break;
     case CXCallingConv_X86_64Win64: dbg << "X86_64Win64"; break;
     case CXCallingConv_X86_64SysV: dbg << "X86_64SysV"; break;

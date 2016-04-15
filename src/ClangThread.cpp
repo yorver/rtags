@@ -53,10 +53,10 @@ CXChildVisitResult ClangThread::visit(const CXCursor &cursor)
     if (!location.isNull()) {
         if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
             checkIncludes(location, cursor);
-            return CXChildVisit_Recurse;
+            // return CXChildVisit_Recurse;
         } else if (mQueryMessage->flags() & QueryMessage::JSON) {
             visitAST(cursor, location);
-            return CXChildVisit_Recurse;
+            // return CXChildVisit_Recurse;
         } else {
             Flags<Location::ToStringFlag> locationFlags;
             if (mQueryMessage->flags() & QueryMessage::NoColor)
@@ -123,6 +123,7 @@ CXChildVisitResult ClangThread::visit(const CXCursor &cursor)
 
 void ClangThread::run()
 {
+    StopWatch sw;
     const auto key = mConnection->disconnected().connect([this](const std::shared_ptr<Connection> &) { abort(); });
 
     CXIndex index = clang_createIndex(0, 0);
@@ -130,15 +131,23 @@ void ClangThread::run()
     String clangLine;
     RTags::parseTranslationUnit(mSource.sourceFile(), mSource.toCommandLine(Source::Default), translationUnit,
                                 index, 0, 0, CXTranslationUnit_DetailedPreprocessingRecord, &clangLine);
+
+    const unsigned long long parseTime = sw.restart();
+    error() << "parseTime" << parseTime;
     if (mQueryMessage->type() == QueryMessage::DumpFile && !(mQueryMessage->flags() & QueryMessage::DumpCheckIncludes|QueryMessage::JSON))
         writeToConnetion(String::format<128>("Indexed: %s => %s", clangLine.constData(), translationUnit ? "success" : "failure"));
     if (translationUnit) {
         clang_visitChildren(clang_getTranslationUnitCursor(translationUnit), ClangThread::visitor, this);
+        const unsigned long long visitTime = sw.restart();
+        error() << "visitTime" << visitTime;
         if (mQueryMessage->flags() &  QueryMessage::JSON) {
             dumpJSON(translationUnit);
         } else if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
             checkIncludes();
         }
+        const unsigned long long processTime = sw.elapsed();
+        error() << "processTime" << processTime;
+        error() << mSource.sourceFile() << "parse" << parseTime << "visit" << visitTime << "process" << processTime;
     } else if (mQueryMessage->flags() & QueryMessage::JSON) {
         writeToConnetion(String::format<1024>("{ \"file\": \"%s\", \"commandLine\": \"%s\", \"success\": false }",
                                               mSource.sourceFile().constData(),
@@ -305,48 +314,40 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
 {
     auto recurse = [&cursor, this](const CXCursor &other) -> Cursor * {
         const CXCursorKind kind = clang_getCursorKind(cursor);
-        if (clang_isInvalid(kind)) {
+        if (clang_isInvalid(kind))
             return 0;
-        }
-        if (!clang_equalCursors(cursor, other) && !clang_equalCursors(cursor, nullCursor))
-            return visitAST(other);
-        return 0;
+        if (clang_equalCursors(cursor, other))
+            return 0;
+        const Location loc = createLocation(cursor);
+        if (loc.isNull())
+            return 0;
+        return visitAST(other, loc);
     };
-    const CXCursorKind kind = clang_getCursorKind(cursor);
-    if (clang_isInvalid(kind)) {
+    assert(!location.isNull());
+    if (location.isNull()) {
         return 0;
     }
-    const String usr = RTags::eatString(clang_getCursorUSR(cursor));
+
+    String usr = RTags::eatString(clang_getCursorUSR(cursor));
     if (!usr.isEmpty()) {
         if (Cursor *ret = mCursorsByUsr.value(usr)) {
             return ret;
         }
     }
-    if (location.isNull()) {
-        location = createLocation(cursor);
-        if (location.isNull()) {
-            return 0;
-        }
-    }
-
-    static int max = 100;
-    if (--max == 0)
-        exit(0);
-
     std::shared_ptr<Cursor> c(new Cursor);
     c->location = location;
     const CXSourceRange range = clang_getCursorExtent(cursor);
     c->rangeStart = createLocation(clang_getRangeStart(range));
     c->rangeEnd = createLocation(clang_getRangeEnd(range));
-    c->usr = usr;
-    if (!c->usr.isEmpty())
-        mCursorsByUsr[c->usr] = c.get();
+    if (!usr.isEmpty())
+        mCursorsByUsr[usr] = c.get();
+    const CXCursorKind kind = clang_getCursorKind(cursor);
+    assert(!clang_isInvalid(kind));
     c->kind << clang_getCursorKindSpelling(kind);
     Log(&c->linkage) << clang_getCursorLinkage(cursor);
     Log(&c->availability) << clang_getCursorAvailability(cursor);
     c->spelling << clang_getCursorSpelling(cursor);
     c->displayName << clang_getCursorDisplayName(cursor);
-    c->mangledName << clang_Cursor_getMangling(cursor);
     c->templateCursorKind << clang_getCursorKindSpelling(clang_getTemplateCursorKind(cursor));
     c->referenced = recurse(clang_getCursorReferenced(cursor));
     c->canonical = recurse(clang_getCanonicalCursor(cursor));
@@ -379,7 +380,8 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     }
     {
         const int count = clang_Cursor_getNumTemplateArguments(cursor);
-        if (count > 0) {
+        if (count > 0 && false) {
+#warning no worky worky
             c->templateArguments.resize(count);
             for (int i=0; i<count; ++i) {
                 Log(&c->templateArguments[i].kind) << clang_Cursor_getTemplateArgumentKind(cursor, i);
@@ -389,6 +391,12 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
             }
         }
     }
+
+    // ### clang_Cursor_getMangling has issues
+    // if ((!c->spelling.isEmpty() || !c->displayName.isEmpty()) && !c->spelling.startsWith("initializer_list<")) {
+    //     c->mangledName << clang_Cursor_getMangling(cursor); // clang doesn't like this called on all cursors
+    // }
+
     c->type = createType(clang_getCursorType(cursor));
     c->receiverType = createType(clang_Cursor_getReceiverType(cursor));
     c->typedefUnderlyingType = createType(clang_getTypedefDeclUnderlyingType(cursor));
@@ -421,6 +429,7 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     }
 
     c->id = mCursors.size();
+    c->usr = std::move(usr);
     mCursors.append(c);
     return c.get();
 }
@@ -439,8 +448,14 @@ ClangThread::Type *ClangThread::createType(const CXType &type)
     t->kind << clang_getTypeKindSpelling(type.kind);
     t->typeDeclaration = visitAST(clang_getTypeDeclaration(type));
     t->numElements = clang_getNumElements(type);
-   t->align = clang_Type_getAlignOf(type);
-    t->sizeOf = clang_Type_getSizeOf(type);
+#if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 16)
+#warning these assert too much
+    // if (type.kind != CXType_LValueReference && type.kind != CXType_RValueReference && type.kind != CXType_Unexposed) {
+    //     t->align = clang_Type_getAlignOf(type);
+    //     t->sizeOf = clang_Type_getSizeOf(type);
+    // }
+#endif
+
     t->numElements = clang_getNumElements(type);
     t->arraySize = clang_getArraySize(type);
     Log(&t->callingConvention) << clang_getFunctionTypeCallingConv(type);
