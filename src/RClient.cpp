@@ -112,7 +112,6 @@ struct Option opts[] = {
     { RClient::ListBuffers, "list-buffers", 0, no_argument, "List active buffers." },
     { RClient::ClassHierarchy, "class-hierarchy", 0, required_argument, "Dump class hierarcy for struct/class at location." },
     { RClient::DebugLocations, "debug-locations", 0, optional_argument, "Manipulate debug locations." },
-    { RClient::VisitAST, "visit-ast", 0, required_argument, "Visit AST of a source file." },
 
     { RClient::None, 0, 0, 0, "" },
     { RClient::None, 0, 0, 0, "Command flags:" },
@@ -167,7 +166,7 @@ struct Option opts[] = {
     { RClient::Autotest, "autotest", 0, no_argument, "Turn on behaviors appropriate for running autotests." },
     { RClient::CodeCompleteIncludeMacros, "code-complete-include-macros", 0, no_argument, "Include macros in code completion results." },
     { RClient::NoSpellCheckinging, "no-spell-checking", 0, no_argument, "Don't produce spell check info in diagnostics." },
-    { RClient::VisitASTScript, "visit-ast-script", 0, required_argument, "Use this script visit AST (@file.js|sourcecode)." },
+    { RClient::JSON, "json", 0, no_argument, "Produce JSON, only works for --dump-file for now." },
     { RClient::None, 0, 0, 0, 0 }
 };
 
@@ -766,6 +765,9 @@ RClient::ParseStatus RClient::parse(int &argc, char **argv)
         case DumpIncludeHeaders:
             mQueryFlags |= QueryMessage::DumpIncludeHeaders;
             break;
+        case JSON:
+            mQueryFlags |= QueryMessage::JSON;
+            break;
         case SilentQuery:
             mQueryFlags |= QueryMessage::SilentQuery;
             break;
@@ -1209,31 +1211,6 @@ RClient::ParseStatus RClient::parse(int &argc, char **argv)
         case ReferenceName:
             addQuery(QueryMessage::ReferencesName, optarg);
             break;
-        case VisitAST: {
-            Path p = optarg;
-            p.resolve(Path::MakeAbsolute);
-            if (!p.isFile()) {
-                fprintf(stderr, "%s is not a file\n", optarg);
-                return Parse_Error;
-            }
-            addQuery(QueryMessage::VisitAST, p);
-            break; }
-        case VisitASTScript: {
-            String code = optarg;
-            if (code.startsWith("@")) {
-                const Path p = code.mid(1);
-                if (!p.isFile()) {
-                    fprintf(stderr, "%s is not a file\n", p.constData());
-                    return Parse_Error;
-                }
-                code = p.readAll();
-            }
-            if (code.isEmpty()) {
-                fprintf(stderr, "Script is empty\n");
-                return Parse_Error;
-            }
-            mVisitAstScripts.push_back(code);
-            break; }
         }
     }
     if (state == Error) {

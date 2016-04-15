@@ -54,7 +54,7 @@ CXChildVisitResult ClangThread::visit(const CXCursor &cursor)
         if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
             checkIncludes(location, cursor);
             return CXChildVisit_Recurse;
-        } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
+        } else if (mQueryMessage->flags() & QueryMessage::JSON) {
             visitAST(cursor, location);
             return CXChildVisit_Recurse;
         } else {
@@ -134,12 +134,12 @@ void ClangThread::run()
         writeToConnetion(String::format<128>("Indexed: %s => %s", clangLine.constData(), translationUnit ? "success" : "failure"));
     if (translationUnit) {
         clang_visitChildren(clang_getTranslationUnitCursor(translationUnit), ClangThread::visitor, this);
-        if (mQueryMessage->type() == QueryMessage::VisitAST) {
+        if (mQueryMessage->flags() &  QueryMessage::JSON) {
             dumpJSON(translationUnit);
         } else if (mQueryMessage->flags() & QueryMessage::DumpCheckIncludes) {
             checkIncludes();
         }
-    } else if (mQueryMessage->type() == QueryMessage::VisitAST) {
+    } else if (mQueryMessage->flags() & QueryMessage::JSON) {
         writeToConnetion(String::format<1024>("{ \"file\": \"%s\", \"commandLine\": \"%s\", \"success\": false }",
                                               mSource.sourceFile().constData(),
                                               String::join(mSource.toCommandLine(Source::Default), ' ').constData()));
@@ -303,16 +303,33 @@ void ClangThread::checkIncludes()
 
 ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location location)
 {
+    auto recurse = [&cursor, this](const CXCursor &other) -> Cursor * {
+        if (!clang_equalCursors(cursor, other) && !clang_equalCursors(cursor, nullCursor))
+            return visitAST(other);
+        return 0;
+    };
+    error() << "visiting" << cursor << RTags::eatString(clang_getCursorUSR(cursor));
+    const CXCursorKind kind = clang_getCursorKind(cursor);
+    if (clang_isInvalid(kind)) {
+        return 0;
+    }
     const String usr = RTags::eatString(clang_getCursorUSR(cursor));
     if (!usr.isEmpty()) {
-        if (Cursor *ret = mCursorsByUsr.value(usr))
+        if (Cursor *ret = mCursorsByUsr.value(usr)) {
             return ret;
+        }
     }
     if (location.isNull()) {
         location = createLocation(cursor);
-        if (location.isNull())
+        if (location.isNull()) {
             return 0;
+        }
     }
+
+    error() << "GOT DUDE" << location;
+    static int max = 100;
+    if (--max == 0)
+        exit(0);
 
     std::shared_ptr<Cursor> c(new Cursor);
     c->location = location;
@@ -322,29 +339,29 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     c->usr = usr;
     if (!c->usr.isEmpty())
         mCursorsByUsr[c->usr] = c.get();
-    c->kind << clang_getCursorKindSpelling(clang_getCursorKind(cursor));
+    c->kind << clang_getCursorKindSpelling(kind);
     Log(&c->linkage) << clang_getCursorLinkage(cursor);
     Log(&c->availability) << clang_getCursorAvailability(cursor);
     c->spelling << clang_getCursorSpelling(cursor);
     c->displayName << clang_getCursorDisplayName(cursor);
     c->mangledName << clang_Cursor_getMangling(cursor);
     c->templateCursorKind << clang_getCursorKindSpelling(clang_getTemplateCursorKind(cursor));
-    c->referenced = visitAST(clang_getCursorReferenced(cursor));
-    c->canonical = visitAST(clang_getCanonicalCursor(cursor));
-    c->lexicalParent = visitAST(clang_getCursorLexicalParent(cursor));
-    c->semanticParent = visitAST(clang_getCursorSemanticParent(cursor));
-    c->specializedCursorTemplate = visitAST(clang_getSpecializedCursorTemplate(cursor));
+    c->referenced = recurse(clang_getCursorReferenced(cursor));
+    c->canonical = recurse(clang_getCanonicalCursor(cursor));
+    c->lexicalParent = recurse(clang_getCursorLexicalParent(cursor));
+    c->semanticParent = recurse(clang_getCursorSemanticParent(cursor));
+    c->specializedCursorTemplate = recurse(clang_getSpecializedCursorTemplate(cursor));
     if (clang_isCursorDefinition(cursor)) {
         c->flags |= Cursor::Definition;
     } else {
-        c->definition = visitAST(clang_getCursorDefinition(cursor));
+        c->definition = recurse(clang_getCursorDefinition(cursor));
     }
     {
         CXCursor *overridden = 0;
         unsigned count;
         clang_getOverriddenCursors(cursor, &overridden, &count);
         for (unsigned i=0; i<count; ++i) {
-            if (Cursor *cc = visitAST(overridden[i]))
+            if (Cursor *cc = recurse(overridden[i]))
                 c->overridden.append(cc);
         }
         clang_disposeOverriddenCursors(overridden);
@@ -353,19 +370,21 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     {
         const int count = clang_Cursor_getNumArguments(cursor);
         for (int i=0; i<count; ++i) {
-            if (Cursor *cc = visitAST(clang_Cursor_getArgument(cursor, i))) {
+            if (Cursor *cc = recurse(clang_Cursor_getArgument(cursor, i))) {
                 c->arguments.append(cc);
             }
         }
     }
     {
         const int count = clang_Cursor_getNumTemplateArguments(cursor);
-        c->templateArguments.resize(count);
-        for (int i=0; i<count; ++i) {
-            Log(&c->templateArguments[i].kind) << clang_Cursor_getTemplateArgumentKind(cursor, i);
-            c->templateArguments[i].value = clang_Cursor_getTemplateArgumentValue(cursor, i);
-            c->templateArguments[i].unsignedValue = clang_Cursor_getTemplateArgumentUnsignedValue(cursor, i);
-            c->templateArguments[i].type = createType(clang_Cursor_getTemplateArgumentType(cursor, i));
+        if (count > 0) {
+            c->templateArguments.resize(count);
+            for (int i=0; i<count; ++i) {
+                Log(&c->templateArguments[i].kind) << clang_Cursor_getTemplateArgumentKind(cursor, i);
+                c->templateArguments[i].value = clang_Cursor_getTemplateArgumentValue(cursor, i);
+                c->templateArguments[i].unsignedValue = clang_Cursor_getTemplateArgumentUnsignedValue(cursor, i);
+                c->templateArguments[i].type = createType(clang_Cursor_getTemplateArgumentType(cursor, i));
+            }
         }
     }
     c->type = createType(clang_getCursorType(cursor));
@@ -389,6 +408,16 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
         c->flags |= Cursor::Static;
     if (clang_CXXMethod_isConst(cursor))
         c->flags |= Cursor::Const;
+
+    CXFile includedFile = clang_getIncludedFile(cursor);
+    if (includedFile) {
+        CXStringScope fn = clang_getFileName(includedFile);
+        const char *cstr = clang_getCString(fn);
+        if (cstr)
+            c->includedFile = Path::resolved(cstr);
+        clang_disposeString(fn);
+    }
+
     c->id = mCursors.size();
     mCursors.append(c.get());
     return c.get();
@@ -408,7 +437,7 @@ ClangThread::Type *ClangThread::createType(const CXType &type)
     t->kind << clang_getTypeKindSpelling(type.kind);
     t->typeDeclaration = visitAST(clang_getTypeDeclaration(type));
     t->numElements = clang_getNumElements(type);
-    t->align = clang_Type_getAlignOf(type);
+   t->align = clang_Type_getAlignOf(type);
     t->sizeOf = clang_Type_getSizeOf(type);
     t->numElements = clang_getNumElements(type);
     t->arraySize = clang_getArraySize(type);
@@ -463,6 +492,8 @@ ClangThread::Type *ClangThread::createType(const CXType &type)
 void ClangThread::dumpJSON(CXTranslationUnit unit)
 {
     Value out;
+    out["file"] = mSource.sourceFile();
+    out["commandLine"] = mSource.toCommandLine(Source::Default);
     Set<uint32_t> files;
     Value &cursors = out["cursors"];
     Value &types = out["types"];
@@ -514,16 +545,144 @@ void ClangThread::dumpJSON(CXTranslationUnit unit)
             clang_disposeDiagnostic(diagnostic);
         }
     }
-
+    const String json = out.toJSON();
+    writeToConnetion(json);
 }
 
 Value ClangThread::Cursor::toValue() const
 {
+    Value ret;
+    ret["id"] = id;
+    ret["location"] = locationToValue(location);
+    // error() << "shit at" << location << kind << rangeStart << rangeEnd;
+    // assert(rangeStart.isNull() == rangeEnd.isNull());
+    if (!rangeStart.isNull())
+        ret["range"] = rangeToValue(rangeStart, rangeEnd);
+    if (!includedFile.isEmpty())
+        ret["includedFile"] = includedFile;
+    ret["usr"] = usr;
+    ret["kind"] = kind;
+    ret["linkage"] = linkage;
+    ret["availability"] = availability;
+    ret["spelling"] = spelling;
+    ret["displayName"] = displayName;
+    ret["mangledName"] = mangledName;
+    ret["templateCursorKind"] = templateCursorKind;
+
+    auto addLink = [&ret](const char *name, Link *l) {
+        if (l)
+            ret[name] = l->id;
+    };
+
+    addLink("referenced", referenced);
+    addLink("lexicalParent", lexicalParent);
+    addLink("semanticParent", semanticParent);
+    addLink("canonical", canonical);
+    addLink("definition", definition);
+
+    auto addLinkList = [&ret](const char *name, const List<Link*> &list) {
+        if (list.isEmpty())
+            return;
+        Value &ref = ret[name];
+        for (Link *c : list) {
+            ref.push_back(c->id);
+        }
+    };
+    addLinkList("overridden", overridden);
+    addLinkList("arguments", arguments);
+    addLinkList("overloadedDecls", overloadedDecls);
+    if (bitFieldWidth > 0)
+        ret["bitFieldWidth"] = bitFieldWidth;
+    if (!templateArguments.isEmpty()) {
+        for (const TemplateArgument &arg : templateArguments) {
+            Value a;
+            a["kind"] = arg.kind;
+            a["value"] = arg.value;
+            a["unsignedValue"] = arg.unsignedValue;
+            if (arg.type) {
+                a["type"] = arg.type->id;
+            }
+        }
+    }
+
+    addLink("type", type);
+    addLink("receiverType", receiverType);
+    addLink("typedefUnderlyingType", typedefUnderlyingType);
+    addLink("enumDeclIntegerType", enumDeclIntegerType);
+    addLink("resultType", resultType);
+
+    auto addFlag = [&ret, this](const char *name, Flag flag) {
+        if (flags & flag)
+            ret[name] = true;
+    };
+    addFlag("BitField", BitField);
+    addFlag("VirtualBase", VirtualBase);
+    addFlag("Definition", Definition);
+    addFlag("DynamicCall", DynamicCall);
+    addFlag("Variadic", Variadic);
+    addFlag("PureVirtual", PureVirtual);
+    addFlag("Virtual", Virtual);
+    addFlag("Static", Static);
+    addFlag("Const", Const);
+    return ret;
 }
 
 Value ClangThread::Type::toValue() const
 {
+    Value ret;
+    ret["id"] = id;
+    ret["spelling"] = spelling;
+    ret["kind"] = kind;
+    ret["element"] = element;
+    ret["referenceType"] = referenceType;
+    ret["callingConvention"] = callingConvention;
 
+    auto addLink = [&ret](const char *name, Link *l) {
+        if (l)
+            ret[name] = l->id;
+    };
+    addLink("canonicalType", canonicalType);
+    addLink("pointeeType", pointeeType);
+    addLink("resultType", resultType);
+    addLink("elementType", elementType);
+    addLink("arrayElementType", arrayElementType);
+    addLink("classType", classType);
+    addLink("typeDeclaration", typeDeclaration);
+
+    auto addLinkList = [&ret](const char *name, const List<Link*> &list) {
+        if (list.isEmpty())
+            return;
+        Value &ref = ret[name];
+        for (Link *c : list) {
+            ref.push_back(c->id);
+        }
+    };
+    addLinkList("arguments", arguments);
+    addLinkList("templateArguments", templateArguments);
+
+    auto addFlag = [&ret, this](const char *name, Flag flag) {
+        if (flags & flag)
+            ret[name] = true;
+    };
+
+    addFlag("ConstQualified", ConstQualified);
+    addFlag("VolatileQualified", VolatileQualified);
+    addFlag("RestrictQualified", RestrictQualified);
+    addFlag("Variadic", Variadic);
+    addFlag("RValue", RValue);
+    addFlag("LValue", LValue);
+    addFlag("POD", POD);
+
+    auto addLongLong = [&ret](const char *name, long long val) {
+        if (val > 0)
+            ret[name] = val;
+    };
+    addLongLong("numElements", numElements);
+    addLongLong("arraySize", arraySize);
+    addLongLong("align", align);
+    addLongLong("sizeOf", sizeOf);
+
+    return ret;
 }
 
 Value ClangThread::diagnosticToValue(CXDiagnostic diagnostic)
@@ -544,24 +703,22 @@ Value ClangThread::diagnosticToValue(CXDiagnostic diagnostic)
     if (rangeCount) {
         Value &ranges = ret["ranges"];
         for (unsigned i=0; i<rangeCount; ++i) {
-            const CXSourceRange range = clang_getDiagnosticRange(diagnostic, i);
-            Value v;
-            v["start"] = locationToValue(createLocation(clang_getRangeStart(range)));
-            v["end"] = locationToValue(createLocation(clang_getRangeEnd(range)));
-            ranges.push_back(v);
+            ranges.push_back(rangeToValue(clang_getDiagnosticRange(diagnostic, i)));
         }
     }
 
     const unsigned fixitCount = clang_getDiagnosticNumFixIts(diagnostic);
     if (fixitCount) {
-        // Value &ranges = ret["ranges"];
-        // for (unsigned i=0; i<rangeCount; ++i) {
-        //     const CXSourceRange range = clang_getDiagnosticRange(diagnostic, i);
-        //     Value v;
-        //     v["start"] = locationToValue(createLocation(clang_getRangeStart(range)));
-        //     v["end"] = locationToValue(createLocation(clang_getRangeEnd(range)));
-        //     ranges.push_back(v);
-        // }
+        Value &fixits = ret["fixits"];
+        for (unsigned i=0; i<rangeCount; ++i) {
+            Value fixit;
+            CXSourceRange range;
+            fixit["text"] = RTags::eatString(clang_getDiagnosticFixIt(diagnostic, i, &range));
+            if (!clang_Range_isNull(range)) {
+                fixit["replaceRange"] = rangeToValue(range);
+            }
+            fixits.push_back(fixit);
+        }
     }
 
     CXDiagnosticSet children = clang_getChildDiagnostics(diagnostic);
@@ -574,8 +731,30 @@ Value ClangThread::diagnosticToValue(CXDiagnostic diagnostic)
             clang_disposeDiagnostic(child);
         }
     }
- }
+    return ret;
+}
 
 Value ClangThread::locationToValue(Location location)
 {
+    assert(!location.isNull());
+    Value ret;
+    ret["file"] = location.path();
+    ret["line"] = location.line();
+    ret["column"] = location.column();
+    ret["location"] = location.toString(Location::AbsolutePath|Location::NoColor);
+    return ret;
+}
+
+Value ClangThread::rangeToValue(CXSourceRange range)
+{
+    assert(!clang_Range_isNull(range));
+    return rangeToValue(createLocation(clang_getRangeStart(range)), createLocation(clang_getRangeEnd(range)));
+}
+
+Value ClangThread::rangeToValue(Location start, Location end)
+{
+    Value v;
+    v["start"] = locationToValue(start);
+    v["end"] = locationToValue(end);
+    return v;
 }

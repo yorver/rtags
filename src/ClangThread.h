@@ -78,13 +78,21 @@ private:
     void handleReference(Location loc, const CXCursor &ref);
     void checkIncludes();
 
-    struct Cursor {
+    struct Link {
+        Link()
+            : id(0)
+        {}
+        virtual ~Link()
+        {}
+
+        uint32_t id;
+    };
+    struct Cursor : public Link {
         Cursor()
-            : id(0), referenced(0), lexicalParent(0), semanticParent(0),
+            : referenced(0), lexicalParent(0), semanticParent(0),
               canonical(0), definition(0), specializedCursorTemplate(0),
               bitFieldWidth(-1), flags(0)
         {}
-        uint32_t id;
         Location location, rangeStart, rangeEnd;
         Path includedFile;
         String usr, kind, linkage, availability, spelling, displayName, mangledName, templateCursorKind;
@@ -112,20 +120,20 @@ private:
             Static = 0x080,
             Const = 0x100
         };
-        Value toValue() const;
 
         unsigned flags;
+
+        Value toValue() const;
     };
     List<Cursor*> mCursors;
     Hash<String, Cursor*> mCursorsByUsr;
 
-    struct Type {
+    struct Type : public Link {
         Type()
-            : id(0), canonicalType(0), pointeeType(0), resultType(0), elementType(0),
+            : canonicalType(0), pointeeType(0), resultType(0), elementType(0),
               arrayElementType(0), classType(0), typeDeclaration(0), flags(0),
               numElements(-1), arraySize(-1), align(-1), sizeOf(-1)
         {}
-        uint32_t id;
         String spelling, kind, element, referenceType, callingConvention;
         Type *canonicalType, *pointeeType, *resultType, *elementType, *arrayElementType, *classType;
         List<Type*> arguments, templateArguments;
@@ -147,6 +155,9 @@ private:
 
     static Value diagnosticToValue(CXDiagnostic diagnostics);
     static Value locationToValue(Location location);
+    static Value rangeToValue(CXSourceRange range);
+    static Value rangeToValue(Location start, Location end);
+
     List<std::shared_ptr<Type> > mTypes;
     Hash<String, Type*> mTypesBySpelling;
 

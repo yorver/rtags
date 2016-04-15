@@ -85,6 +85,7 @@ public:
         IsIndexed,
         IsIndexing,
         JobCount,
+        JSON,
         KindFilter,
         ListBuffers,
         ListSymbols,
@@ -133,8 +134,6 @@ public:
         UnsavedFile,
         Verbose,
         Version,
-        VisitAST,
-        VisitASTScript,
         Wait,
         WildcardSymbolNames,
         XMLCompletions,
@@ -185,8 +184,7 @@ public:
     char **argv() const { return mArgv; }
     void onNewMessage(const std::shared_ptr<Message> &message, const std::shared_ptr<Connection> &);
     List<Path> pathEnvironment() const;
-    List<String> visitAstScripts() const { return mVisitAstScripts; }
-private:
+ private:
     void addQuery(QueryMessage::Type t, const String &query = String(),
                   Flags<QueryMessage::Flag> extraQueryFlags = Flags<QueryMessage::Flag>());
     void addQuitCommand(int exitCode);
@@ -211,7 +209,6 @@ private:
     bool mGuessFlags;
     Path mProjectRoot;
     int mTerminalWidth;
-    List<String> mVisitAstScripts;
     mutable List<Path> mPathEnvironment;
 
     int mArgc;
