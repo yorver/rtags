@@ -125,7 +125,7 @@ private:
 
         Value toValue() const;
     };
-    List<Cursor*> mCursors;
+    List<std::shared_ptr<Cursor> > mCursors;
     Hash<String, Cursor*> mCursorsByUsr;
 
     struct Type : public Link {

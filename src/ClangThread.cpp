@@ -130,7 +130,7 @@ void ClangThread::run()
     String clangLine;
     RTags::parseTranslationUnit(mSource.sourceFile(), mSource.toCommandLine(Source::Default), translationUnit,
                                 index, 0, 0, CXTranslationUnit_DetailedPreprocessingRecord, &clangLine);
-    if (mQueryMessage->type() == QueryMessage::DumpFile && !(mQueryMessage->flags() & QueryMessage::DumpCheckIncludes))
+    if (mQueryMessage->type() == QueryMessage::DumpFile && !(mQueryMessage->flags() & QueryMessage::DumpCheckIncludes|QueryMessage::JSON))
         writeToConnetion(String::format<128>("Indexed: %s => %s", clangLine.constData(), translationUnit ? "success" : "failure"));
     if (translationUnit) {
         clang_visitChildren(clang_getTranslationUnitCursor(translationUnit), ClangThread::visitor, this);
@@ -304,11 +304,14 @@ void ClangThread::checkIncludes()
 ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location location)
 {
     auto recurse = [&cursor, this](const CXCursor &other) -> Cursor * {
+        const CXCursorKind kind = clang_getCursorKind(cursor);
+        if (clang_isInvalid(kind)) {
+            return 0;
+        }
         if (!clang_equalCursors(cursor, other) && !clang_equalCursors(cursor, nullCursor))
             return visitAST(other);
         return 0;
     };
-    error() << "visiting" << cursor << RTags::eatString(clang_getCursorUSR(cursor));
     const CXCursorKind kind = clang_getCursorKind(cursor);
     if (clang_isInvalid(kind)) {
         return 0;
@@ -326,7 +329,6 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
         }
     }
 
-    error() << "GOT DUDE" << location;
     static int max = 100;
     if (--max == 0)
         exit(0);
@@ -419,7 +421,7 @@ ClangThread::Cursor *ClangThread::visitAST(const CXCursor &cursor, Location loca
     }
 
     c->id = mCursors.size();
-    mCursors.append(c.get());
+    mCursors.append(c);
     return c.get();
 }
 ClangThread::Type *ClangThread::createType(const CXType &type)
@@ -514,22 +516,24 @@ void ClangThread::dumpJSON(CXTranslationUnit unit)
             continue;
         if (CXSourceRangeList *skipped = clang_getSkippedRanges(unit, file)) {
             const unsigned int count = skipped->count;
-            assert(count);
-            Value &skippedFile = skippedRanges[path];
-            for (unsigned int i=0; i<count; ++i) {
-                const CXSourceLocation start = clang_getRangeStart(skipped->ranges[i]);
-                const CXSourceLocation end = clang_getRangeEnd(skipped->ranges[i]);
-                unsigned int startLine, startColumn, startOffset, endLine, endColumn, endOffset;
-                clang_getSpellingLocation(start, 0, &startLine, &startColumn, &startOffset);
-                clang_getSpellingLocation(end, 0, &endLine, &endColumn, &endOffset);
-                Value range;
-                range["startLine"] = startLine;
-                range["startColumn"] = startLine;
-                range["startOffset"] = startLine;
-                range["endLine"] = endLine;
-                range["endColumn"] = endLine;
-                range["endOffset"] = endLine;
-                skippedFile.push_back(range);
+            if (count) {
+                assert(count);
+                Value &skippedFile = skippedRanges[path];
+                for (unsigned int i=0; i<count; ++i) {
+                    const CXSourceLocation start = clang_getRangeStart(skipped->ranges[i]);
+                    const CXSourceLocation end = clang_getRangeEnd(skipped->ranges[i]);
+                    unsigned int startLine, startColumn, startOffset, endLine, endColumn, endOffset;
+                    clang_getSpellingLocation(start, 0, &startLine, &startColumn, &startOffset);
+                    clang_getSpellingLocation(end, 0, &endLine, &endColumn, &endOffset);
+                    Value range;
+                    range["startLine"] = startLine;
+                    range["startColumn"] = startLine;
+                    range["startOffset"] = startLine;
+                    range["endLine"] = endLine;
+                    range["endColumn"] = endLine;
+                    range["endOffset"] = endLine;
+                    skippedFile.push_back(range);
+                }
             }
 
             clang_disposeSourceRangeList(skipped);
