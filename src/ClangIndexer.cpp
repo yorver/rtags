@@ -1122,7 +1122,8 @@ void ClangIndexer::handleInclude(const CXCursor &cursor, CXCursorKind kind, Loca
                 return;
 
             String include = "#include ";
-            const Path path = refLoc.path();
+            Path path = refLoc.path();
+            Location::replaceFullWithRelativePath(path);
             assert(mSource.fileId);
             unit(location)->symbolNames[(include + path)].insert(location);
             unit(location)->symbolNames[(include + path.fileName())].insert(location);
@@ -1131,7 +1132,9 @@ void ClangIndexer::handleInclude(const CXCursor &cursor, CXCursorKind kind, Loca
             c.kind = cursor.kind;
             c.symbolLength = c.symbolName.size() + 2;
             c.location = location;
-            unit(location)->targets[location][refLoc.toString(Location::NoColor|Location::AbsolutePath)] = 0; // ### what targets value to create for this?
+            Path refLocPath = refLoc.toString(Location::NoColor|Location::AbsolutePath);
+            Location::replaceFullWithRelativePath(refLocPath);
+            unit(location)->targets[location][refLocPath] = 0; // ### what targets value to create for this?
             // this fails for things like:
             // # include    <foobar.h>
             return;
@@ -1736,24 +1739,6 @@ static inline Map<String, Set<Location> > convertTargets(const Map<Location, Map
     return ret;
 }
 
-static void convertRelativePath(Map<String, Set<Location> > & usrs)
-{
-    std::list<String> sbstrs;
-
-    for (auto & m : usrs) {
-        if (Location::containSandboxRoot(m.first)) {
-            sbstrs.push_back(m.first);
-        }
-    }
-    for (auto & n : sbstrs) {
-        auto it = usrs.find(n);
-        assert(it != usrs.end());
-        String srel = Location::replaceFullWithRelativePath(n);
-        std::swap(usrs[srel], it->second);
-        usrs.erase(it);
-    }
-}
-
 bool ClangIndexer::writeFiles(const Path &root, String &error)
 {
     for (const auto &unit : mUnits) {
@@ -1783,21 +1768,15 @@ bool ClangIndexer::writeFiles(const Path &root, String &error)
             error = "Failed to write symbols";
             return false;
         }
-        Map<String, Set<Location> > tmpTargets = convertTargets(unit.second->targets);
-        // SBROOT
-        convertRelativePath(tmpTargets);
-        if (!FileMap<String, Set<Location> >::write(unitRoot + "/targets", tmpTargets, fileMapOpts)) {
+        if (!FileMap<String, Set<Location> >::write(unitRoot + "/targets", convertTargets(unit.second->targets), fileMapOpts)) {
             error = "Failed to write targets";
             return false;
         }
-        // SBROOT
-        convertRelativePath(unit.second->usrs);
         if (!FileMap<String, Set<Location> >::write(unitRoot + "/usrs", unit.second->usrs, fileMapOpts)) {
             error = "Failed to write usrs";
             return false;
         }
         // SBROOT
-        convertRelativePath(unit.second->symbolNames);
         if (!FileMap<String, Set<Location> >::write(unitRoot + "/symnames", unit.second->symbolNames, fileMapOpts)) {
             error = "Failed to write symbolNames";
             return false;
@@ -2155,7 +2134,8 @@ CXChildVisitResult ClangIndexer::verboseVisitor(CXCursor cursor, CXCursor, CXCli
 void ClangIndexer::addFileSymbol(uint32_t file)
 {
     const Location loc(file, 1, 1);
-    const Path path = Location::path(file);
+    Path path = Location::path(file);
+    Location::replaceFullWithRelativePath(path);
     auto ref = unit(loc);
     ref->symbolNames[path].insert(loc);
     const char *fn = path.fileName();
