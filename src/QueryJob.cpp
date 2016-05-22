@@ -316,7 +316,17 @@ bool QueryJob::write(const Symbol &symbol,
             if (mode != Mode_Symbol)
                 flags |= Indent;
             elisp(out, "location", symbol.location, flags);
-            elisp(out, "symbolName", symbol.symbolName, flags);
+            if (symbol.argumentUsage.index != String::npos) {
+                elisp(out, "invocation", symbol.argumentUsage.invocation, flags);
+                elisp(out, "invokedFunction", symbol.argumentUsage.invokedFunction, flags);
+                String arg = "(list ";
+                elisp(arg, "location", symbol.argumentUsage.argument.first, flags);
+                elisp(arg, "length", symbol.argumentUsage.argument.second, flags);
+                arg += ")";
+                elisp(out, "functionArgument", arg, flags | NoQuote);
+                elisp(out, "argumentIndex", symbol.argumentUsage.index, flags);
+            }
+            elisp(out, "symbolName", symbol.symbolName, flags | ElispEscape);
             elisp(out, "usr", symbol.usr, flags);
             if (!symbol.baseClasses.isEmpty()) {
                 List<String> baseClasses;

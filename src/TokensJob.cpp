@@ -75,7 +75,7 @@ int TokensJob::execute()
                     return false;
 
                 if (!sym.isNull())
-                    return write(sym, toStringFlags) && write(")))");
+                    return write(sym) && write(")))");
                 return true;
             };
 

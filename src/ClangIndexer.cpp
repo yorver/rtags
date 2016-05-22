@@ -70,12 +70,11 @@ struct VerboseVisitorUserData {
 Flags<Server::Option> ClangIndexer::sServerOpts;
 Path ClangIndexer::sServerSandboxRoot;
 ClangIndexer::ClangIndexer()
-    : mLastCursor(nullCursor), mLastCallExpr(nullCursor),
-      mVisitFileResponseMessageFileId(0), mVisitFileResponseMessageVisit(0), mParseDuration(0),
-      mVisitDuration(0), mBlocked(0), mAllowed(0), mIndexed(1), mVisitFileTimeout(0),
-      mIndexDataMessageTimeout(0), mFileIdsQueried(0), mFileIdsQueriedTime(0),
-      mCursorsVisited(0), mLogFile(0), mConnection(Connection::create(RClient::NumOptions)),
-      mUnionRecursion(false)
+    : mLastCursor(nullCursor), mLastCallExprSymbol(0), mVisitFileResponseMessageFileId(0),
+      mVisitFileResponseMessageVisit(0), mParseDuration(0), mVisitDuration(0), mBlocked(0),
+      mAllowed(0), mIndexed(1), mVisitFileTimeout(0), mIndexDataMessageTimeout(0),
+      mFileIdsQueried(0), mFileIdsQueriedTime(0), mCursorsVisited(0), mLogFile(0),
+      mConnection(Connection::create(RClient::NumOptions)), mUnionRecursion(false)
 {
     mConnection->newMessage().connect(std::bind(&ClangIndexer::onMessage, this,
                                                 std::placeholders::_1, std::placeholders::_2));
@@ -716,7 +715,11 @@ CXChildVisitResult ClangIndexer::indexVisitor(CXCursor cursor)
             break;
         case CXCursor_CallExpr: {
             // uglehack, see rtags/tests/nestedClassConstructorCallUgleHack/
-            mLastCallExpr = cursor;
+            List<std::pair<Location, int> > arguments;
+            extractArguments(&arguments, cursor);
+            Symbol *old = 0;
+            Location oldLoc;
+            std::swap(mLastCallExprSymbol, old);
             const CXCursor ref = clang_getCursorReferenced(cursor);
             if (clang_getCursorKind(ref) == CXCursor_Constructor
                 && (clang_getCursorKind(mLastCursor) == CXCursor_TypeRef || clang_getCursorKind(mLastCursor) == CXCursor_TemplateRef)
@@ -726,6 +729,35 @@ CXChildVisitResult ClangIndexer::indexVisitor(CXCursor cursor)
             } else {
                 handleReference(cursor, kind, loc, ref);
             }
+            List<std::pair<Location, int> > destArguments;
+            extractArguments(&destArguments, ref);
+            visit(cursor);
+            if (mLastCallExprSymbol && !arguments.isEmpty()) {
+                const Location invokedLocation = createLocation(ref);
+                auto u = unit(loc);
+                size_t idx = 0;
+                for (const auto &arg : arguments) {
+                    const auto destArg = destArguments.value(idx);
+                    if (!destArg.first.isNull())
+                        break;
+                    const Location start = arg.first;
+                    const Location end(start.fileId(), start.line(), start.column() + arg.second); // this falls apart if you have multi-line arguments
+                    auto it = u->symbols.lower_bound(start);
+                    while (it != u->symbols.end() && it->first <= end) {
+                        auto &sym = it->second;
+                        sym.argumentUsage.index = idx;
+                        sym.argumentUsage.invokedFunction = invokedLocation;
+                        sym.argumentUsage.argument = destArg;
+                        sym.argumentUsage.invocation = mLastCallExprSymbol->location;
+                        ++it;
+                    }
+                    ++idx;
+                }
+
+                mLastCallExprSymbol->arguments = std::move(arguments);
+            }
+            std::swap(old, mLastCallExprSymbol);
+            visitResult = CXChildVisit_Continue;
             break; }
         default:
             handleReference(cursor, kind, loc, clang_getCursorReferenced(cursor));
@@ -1079,10 +1111,8 @@ bool ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind, Lo
         return false;
     }
     setType(*c, clang_getCursorType(cursor));
-    if (kind == CXCursor_CallExpr) {
-        addArguments(c, cursor);
-    } else if (RTags::isFunction(CXCursor_CXXMethod)) {
-        addArguments(c, mLastCallExpr);
+    if (RTags::isFunction(refKind)) {
+        mLastCallExprSymbol = c;
     }
 
     return true;
@@ -1321,18 +1351,17 @@ void ClangIndexer::handleBaseClassSpecifier(const CXCursor &cursor)
     lastClass.baseClasses << usr;
 }
 
-void ClangIndexer::addArguments(Symbol *sym, const CXCursor &cursor)
+void ClangIndexer::extractArguments(List<std::pair<Location, int> > *arguments, const CXCursor &cursor)
 {
-    const int count = clang_Cursor_getNumArguments(cursor);
-    if (count > 0) {
-        sym->arguments.resize(count);
-        for (int i=0; i<count; ++i) {
-            CXSourceRange range = clang_getCursorExtent(clang_Cursor_getArgument(cursor, i));
-            unsigned startOffset, endOffset;
-            sym->arguments[i].first = createLocation(clang_getRangeStart(range), 0, &startOffset);
-            clang_getSpellingLocation(clang_getRangeEnd(range), 0, 0, 0, &endOffset);
-            sym->arguments[i].second = endOffset - startOffset;
-        }
+    assert(arguments);
+    const int count = std::max(0, clang_Cursor_getNumArguments(cursor));
+    arguments->resize(count);
+    for (int i=0; i<count; ++i) {
+        CXSourceRange range = clang_getCursorExtent(clang_Cursor_getArgument(cursor, i));
+        unsigned startOffset, endOffset;
+        (*arguments)[i].first = createLocation(clang_getRangeStart(range), 0, &startOffset);
+        clang_getSpellingLocation(clang_getRangeEnd(range), 0, 0, 0, &endOffset);
+        (*arguments)[i].second = endOffset - startOffset;
     }
 }
 
@@ -1657,13 +1686,13 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
             c.flags |= Symbol::InlineFunction;
 #endif
 
-        addArguments(&c, cursor);
+        extractArguments(&c.arguments, cursor);
         break;
     case CXCursor_LambdaExpr:
-        addArguments(&c, cursor);
+        extractArguments(&c.arguments, cursor);
         break;
     case CXCursor_Constructor:
-        addArguments(&c, cursor);
+        extractArguments(&c.arguments, cursor);
         // fall through
     case CXCursor_Destructor:
         // these are for joining constructors/destructor with their classes (for renaming symbols)
