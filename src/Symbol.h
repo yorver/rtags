@@ -26,6 +26,7 @@
 #include "rct/List.h"
 #include "rct/Serializer.h"
 #include "rct/String.h"
+#include "rct/Value.h"
 
 class Project;
 struct Symbol
@@ -36,7 +37,7 @@ struct Symbol
           size(-1), fieldOffset(-1), alignment(-1)
     {}
 
-    Location location; // set for arguments only
+    Location location;
     struct ArgumentUsage {
         ArgumentUsage()
             : index(String::npos)
@@ -44,7 +45,7 @@ struct Symbol
         Location invocation, invokedFunction;
         std::pair<Location, int> argument;
         size_t index;
-    } argumentUsage;
+    } argumentUsage; // set for arguments only
 
     String symbolName, usr, typeName;
     List<String> baseClasses;
@@ -137,6 +138,9 @@ struct Symbol
         IncludeParents = 0x4,
         IncludeBaseClasses = 0x8
     };
+    Value toValue(const std::shared_ptr<Project> &project,
+                  Flags<ToStringFlag> toStringFlags,
+                  Flags<Location::ToStringFlag> locationToStringFlags) const;
     String toString(Flags<ToStringFlag> toStringFlags = DefaultFlags,
                     Flags<Location::ToStringFlag> = Flags<Location::ToStringFlag>(),
                     const std::shared_ptr<Project> &project = std::shared_ptr<Project>()) const;
