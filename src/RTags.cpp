@@ -975,4 +975,82 @@ bool loadCompileCommands(const Hash<Path, CompilationDataBaseInfo> &infos, const
 #endif
     return false;
 }
+
+class ElispFormatter : public Value::Formatter
+{
+public:
+    virtual void format(const Value &value, std::function<void(const char *, size_t)> output) const
+    {
+        switch (value.type()) {
+        case Value::Type_Invalid:
+        case Value::Type_Undefined:
+            output("nil", 4);
+            break;
+        case Value::Type_Boolean:
+            if (value.toBool()) {
+                output("t", 4);
+            } else {
+                output("nil", 5);
+            }
+            break;
+        case Value::Type_Integer: {
+            char buf[128];
+            const size_t w = snprintf(buf, sizeof(buf), "%d", value.toInteger());
+            output(buf, w);
+            break; }
+        case Value::Type_Double: {
+            char buf[128];
+            const size_t w = snprintf(buf, sizeof(buf), "%g", value.toDouble());
+            output(buf, w);
+            break; }
+        case Value::Type_String: {
+            const String str = elispEscape(value.toString());
+            output(str.constData(), str.size());
+            break; }
+        case Value::Type_Custom: {
+            const String str = elispEscape(value.toCustom()->toString());
+            output(str.constData(), str.size());
+            break; }
+        case Value::Type_Map: {
+            const auto end = value.end();
+            bool first = true;
+            output("'(", 1);
+            for (auto it = value.begin(); it != end; ++it) {
+                if (!first) {
+                    output(" ", 1);
+                } else {
+                    first = false;
+                }
+                output("'", 1);
+                output(it->first.constData(), it->first.size());
+                output(" ", 1);
+                format(it->second, output);
+            }
+            output(")", 1);
+            break; }
+        case Value::Type_List: {
+            const auto end = value.listEnd();
+            output("'(", 1);
+            bool first = true;
+            for (auto it = value.listBegin(); it != end; ++it) {
+                if (!first) {
+                    output(" ", 1);
+                } else {
+                    first = false;
+                }
+                format(*it, output);
+            }
+            output(")", 1);
+            break; }
+        case Value::Type_Date:
+            const String str = elispEscape(String::formatTime(value.toDate().time()));
+            output(str.constData(), str.size());
+            break;
+        }
+    }
+};
+String toElisp(const Value &value)
+{
+    return ElispFormatter().toString(value);
+}
 }
