@@ -176,6 +176,7 @@ struct Option opts[] = {
     { RClient::VisitASTScript, "visit-ast-script", 0, required_argument, "Use this script visit AST (@file.js|sourcecode)." },
 #endif
     { RClient::TokensIncludeSymbols, "tokens-include-symbols", 0, no_argument, "Include symbols for tokens." },
+    { RClient::CodeCompleteIncludeChunks, "code-complete-include-chunks", 0, no_argument, "Include chunks in code completion results." },
     { RClient::None, 0, 0, 0, 0 }
 };
 
@@ -335,19 +336,8 @@ public:
     }
     virtual bool exec(RClient *rc, const std::shared_ptr<Connection> &connection) override
     {
-        unsigned int flags = RTagsLogOutput::None;
-        if (rc->queryFlags() & QueryMessage::Elisp) {
-            flags |= RTagsLogOutput::Elisp;
-        } else if (rc->queryFlags() & QueryMessage::XML) {
-            flags |= RTagsLogOutput::XML;
-        } else if (rc->queryFlags() & QueryMessage::JSON) {
-            flags |= RTagsLogOutput::JSON;
-        } else if (rc->queryFlags() & QueryMessage::NoSpellChecking) {
-            flags |= RTagsLogOutput::NoSpellChecking;
-        }
-
         const LogLevel level = mLevel == Default ? rc->logLevel() : mLevel;
-        LogOutputMessage msg(level, flags);
+        LogOutputMessage msg(level, rc->queryFlags().cast<unsigned int>());
         msg.init(rc->argc(), rc->argv());
         return connection->send(msg);
     }
@@ -630,6 +620,9 @@ RClient::ParseStatus RClient::parse(int &argc, char **argv)
         case CodeCompleteIncludeMacros:
             mQueryFlags |= QueryMessage::CodeCompleteIncludeMacros;
             break;
+        case CodeCompleteIncludeChunks:
+            mQueryFlags |= QueryMessage::CodeCompleteIncludeChunks;
+            break;
         case CodeCompleteIncludes:
             mQueryFlags |= QueryMessage::CodeCompleteIncludes;
             break;
@@ -774,7 +767,8 @@ RClient::ParseStatus RClient::parse(int &argc, char **argv)
                 return Parse_Error;
             }
 
-            addQuery(opt->option == CodeCompleteAt ? QueryMessage::CodeCompleteAt : QueryMessage::PrepareCodeCompleteAt, encoded);
+            addQuery(QueryMessage::CodeCompleteAt, encoded,
+                     opt->option == CodeCompleteAt ? QueryMessage::NoFlag : QueryMessage::CodeCompleteRefresh);
             break; }
         case Silent:
             mLogLevel = LogLevel::None;

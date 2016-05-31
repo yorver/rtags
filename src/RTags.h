@@ -395,10 +395,37 @@ inline const char *builtinTypeName(CXTypeKind kind)
     case CXType_Float: ret = "float"; break;
     case CXType_Double: ret = "double"; break;
     case CXType_LongDouble: ret = "long double"; break;
-    default:
-        break;
+    default: break;
     }
     return ret;
+}
+
+inline const char *completionChunkKindSpelling(CXCompletionChunkKind kind)
+{
+    switch (kind) {
+    case CXCompletionChunk_Optional: return "Optional";
+    case CXCompletionChunk_TypedText: return "TypedText";
+    case CXCompletionChunk_Text: return "Text";
+    case CXCompletionChunk_Placeholder: return "Placeholder";
+    case CXCompletionChunk_Informative: return "Informative";
+    case CXCompletionChunk_CurrentParameter: return "CurrentParameter";
+    case CXCompletionChunk_LeftParen: return "LeftParen";
+    case CXCompletionChunk_RightParen: return "RightParen";
+    case CXCompletionChunk_LeftBracket: return "LeftBracket";
+    case CXCompletionChunk_RightBracket: return "RightBracket";
+    case CXCompletionChunk_LeftBrace: return "LeftBrace";
+    case CXCompletionChunk_RightBrace: return "RightBrace";
+    case CXCompletionChunk_LeftAngle: return "LeftAngle";
+    case CXCompletionChunk_RightAngle: return "RightAngle";
+    case CXCompletionChunk_Comma: return "Comma";
+    case CXCompletionChunk_ResultType: return "ResultType";
+    case CXCompletionChunk_Colon: return "Colon";
+    case CXCompletionChunk_SemiColon: return "SemiColon";
+    case CXCompletionChunk_Equal: return "Equal";
+    case CXCompletionChunk_HorizontalSpace: return "HorizontalSpace";
+    case CXCompletionChunk_VerticalSpace: return "VerticalSpace";
+    }
+    return 0;
 }
 
 String typeString(const CXType &type);
@@ -766,6 +793,7 @@ inline Log operator<<(Log dbg, CXTypeKind kind);
 inline Log operator<<(Log dbg, CXLinkageKind kind);
 
 inline bool operator==(const CXCursor &l, const CXCursor &r) { return clang_equalCursors(l, r); }
+
 class CXStringScope
 {
 public:

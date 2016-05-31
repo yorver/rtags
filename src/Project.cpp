@@ -651,7 +651,7 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
         log([&](const std::shared_ptr<LogOutput> &output) {
                 if (output->testLog(RTags::DiagnosticsLevel)) {
                     DiagnosticsFormat format = Diagnostics_XML;
-                    if (output->flags() & RTagsLogOutput::Elisp) {
+                    if (output->flags() & QueryMessage::Elisp) {
                         // I know this is RTagsLogOutput because it returned
                         // true for testLog(RTags::DiagnosticsLevel)
                         format = Diagnostics_Elisp;
@@ -713,7 +713,7 @@ void Project::diagnose(uint32_t fileId)
     log([&](const std::shared_ptr<LogOutput> &output) {
             if (output->testLog(RTags::DiagnosticsLevel)) {
                 DiagnosticsFormat format = Diagnostics_XML;
-                if (output->flags() & RTagsLogOutput::Elisp) {
+                if (output->flags() & QueryMessage::Elisp) {
                     // I know this is RTagsLogOutput because it returned
                     // true for testLog(RTags::DiagnosticsLevel)
                     format = Diagnostics_Elisp;
@@ -730,7 +730,7 @@ void Project::diagnoseAll()
     log([&](const std::shared_ptr<LogOutput> &output) {
             if (output->testLog(RTags::DiagnosticsLevel)) {
                 DiagnosticsFormat format = Diagnostics_XML;
-                if (output->flags() & RTagsLogOutput::Elisp) {
+                if (output->flags() & QueryMessage::Elisp) {
                     // I know this is RTagsLogOutput because it returned
                     // true for testLog(RTags::DiagnosticsLevel)
                     format = Diagnostics_Elisp;

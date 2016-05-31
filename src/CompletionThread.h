@@ -30,6 +30,7 @@
 #include "rct/Thread.h"
 #include "Source.h"
 #include "RTags.h"
+#include "QueryMessage.h"
 
 class CompletionThread : public Thread
 {
@@ -38,15 +39,7 @@ public:
     ~CompletionThread();
 
     virtual void run() override;
-    enum Flag {
-        None = 0x00,
-        Refresh = 0x01,
-        Elisp = 0x02,
-        XML = 0x04,
-        JSON = 0x08,
-        CodeCompleteIncludeMacros = 0x10
-    };
-    void completeAt(const Source &source, Location location, Flags<Flag> flags,
+    void completeAt(const Source &source, Location location, Flags<QueryMessage::Flag> flags,
                     const String &unsaved, const std::shared_ptr<Connection> &conn);
     void stop();
     String dump();
@@ -65,7 +58,7 @@ private:
         }
         Source source;
         Location location;
-        Flags<Flag> flags;
+        Flags<QueryMessage::Flag> flags;
         String unsaved;
         std::shared_ptr<Connection> conn;
     };
@@ -84,9 +77,25 @@ private:
             String completion, signature, annotation, parent, briefComment;
             int priority, distance;
             CXCursorKind cursorKind;
+            struct Chunk {
+                Chunk()
+                    : kind(CXCompletionChunk_Optional)
+                {}
+                Chunk(String &&t, CXCompletionChunkKind k)
+                    : text(std::forward<String>(t)), kind(k)
+                {}
+                String text;
+                CXCompletionChunkKind kind;
+            };
+            List<Chunk> chunks;
+
+            void json(String &str);
+            Value toValue(bool includeChunks) const;
         };
+
         List<Candidate> candidates;
         const Location location;
+        Flags<QueryMessage::Flag> flags;
         Completions *next, *prev;
     };
 
@@ -175,7 +184,5 @@ private:
     mutable std::mutex mMutex;
     std::condition_variable mCondition;
 };
-
-RCT_FLAGS(CompletionThread::Flag);
 
 #endif

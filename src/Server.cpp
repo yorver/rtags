@@ -602,7 +602,6 @@ void Server::handleQueryMessage(const std::shared_ptr<QueryMessage> &message, co
         sendDiagnostics(message, conn);
         break;
     case QueryMessage::CodeCompleteAt:
-    case QueryMessage::PrepareCodeCompleteAt:
         codeCompleteAt(message, conn);
         break;
     case QueryMessage::Suspend:
@@ -1945,24 +1944,13 @@ void Server::codeCompleteAt(const std::shared_ptr<QueryMessage> &query, const st
         mCompletionThread->start();
     }
 
-    Flags<CompletionThread::Flag> flags;
-    if (query->type() == QueryMessage::PrepareCodeCompleteAt)
-        flags |= CompletionThread::Refresh;
-    if (query->flags() & QueryMessage::Elisp)
-        flags |= CompletionThread::Elisp;
-    if (query->flags() & QueryMessage::JSON)
-        flags |= CompletionThread::JSON;
-    if (query->flags() & QueryMessage::XML)
-        flags |= CompletionThread::XML;
-    if (query->flags() & QueryMessage::CodeCompleteIncludeMacros)
-        flags |= CompletionThread::CodeCompleteIncludeMacros;
     std::shared_ptr<Connection> c = conn;
     if (!(query->flags() & QueryMessage::SynchronousCompletions)) {
         c->finish();
         c.reset();
     }
     error() << "Got completion request for" << loc;
-    mCompletionThread->completeAt(source, loc, flags, query->unsavedFiles().value(loc.path()), c);
+    mCompletionThread->completeAt(source, loc, query->flags(), query->unsavedFiles().value(loc.path()), c);
 }
 
 void Server::dumpJobs(const std::shared_ptr<Connection> &conn)
