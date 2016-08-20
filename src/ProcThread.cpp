@@ -18,6 +18,9 @@
 ProcThread::ProcThread(int interval)
     : Thread(), mInterval(interval)
 {
+#ifdef RTAGS_HAS_PROC
+    mPath = "/proc/";
+#endif
 }
 
 ProcThread::~ProcThread()
@@ -50,6 +53,26 @@ void ProcThread::stop()
 
 void ProcThread::readProc()
 {
-    // DIR *dir = opendir("/proc/");
-    // if (!
+    for (auto &pair : mSeen) {
+        assert(!pair.second.marked);
+        pair.second.marked = true;
+    }
+#ifdef RTAGS_HAS_PROC
+    mPath.visit([](const Path &path) -> Path::VisitResult {
+            bool ok;
+            unsigned long long pid = path.toULongLong(&ok);
+            if (ok) {
+                char path[4096];
+                snprintf(path, sizeof(path), "%scmdline", path.constData());
+                FILE *f = fopen(path, "r");
+                if (f) {
+                    char buf[4096];
+                    size_t read = fread(buf, 1, sizeof(buf), f);
+
+                    fclose(f);
+                }
+            }
+            return Path::Continue;
+        });
+#endif
 }

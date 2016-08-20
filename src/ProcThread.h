@@ -17,12 +17,17 @@
 #define ProcThread_h
 
 #include <rct/Hash.h>
+#include <rct/Path.h>
 #include <rct/Thread.h>
 #include <rct/SignalSlot.h>
 #include <rct/String.h>
 #include <mutex>
 #include <condition_variable>
 #include <time.h>
+
+#if defined(OS_Linux) || defined(OS_FreeBSD) || 1
+#define RTAGS_HAS_PROC
+#endif
 
 class ProcThread : public Thread
 {
@@ -48,6 +53,9 @@ private:
         time_t creationData;
         bool marked;
     };
+#ifdef RTAGS_HAS_PROC
+    Path mPath;
+#endif
     Hash<unsigned long long, Node> mSeen;
 };
 
