@@ -1807,6 +1807,12 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
                 Location(location.fileId(), c.endLine, c.endColumn - 1)});
         if (c.kind == CXCursor_FunctionTemplate)
             ++mInTemplateFunction;
+        if (!c.arguments.isEmpty()) {
+            const CXSourceRange range = clang_getCursorExtent(cursor);
+            CXToken *tokens = 0;
+            unsigned numTokens = 0;
+        }
+
         visit(cursor);
         if (c.kind == CXCursor_FunctionTemplate)
             --mInTemplateFunction;
@@ -2294,6 +2300,7 @@ void ClangIndexer::tokenize(CXFile file, uint32_t fileId, const Path &path)
     StopWatch sw;
     const CXSourceLocation startLoc = clang_getLocationForOffset(tu, file, 0);
     const CXSourceLocation endLoc = clang_getLocationForOffset(tu, file, path.fileSize());
+    // ### this should use the size at the time we parsed or unsaved file size if it's passed
 
     CXSourceRange range = clang_getRange(startLoc, endLoc);
     CXToken *tokens = 0;
