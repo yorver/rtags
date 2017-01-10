@@ -159,7 +159,7 @@ bool QueryJob::locationToString(Location location,
                         if (symbol.location.fileId() != fileId)
                             break;
                         if (symbol.isDefinition()
-                            && RTags::isContainer(symbol.kind)
+                            && symbol.isContainer()
                             && comparePosition(line, column, symbol.startLine, symbol.startColumn) >= 0
                             && comparePosition(line, column, symbol.endLine, symbol.endColumn) <= 0) {
                             if (containingFunction)

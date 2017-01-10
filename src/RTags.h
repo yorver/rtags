@@ -55,6 +55,7 @@ inline bool operator==(const CXCursor &l, CXCursorKind r)
 {
     return clang_getCursorKind(l) == r;
 }
+
 inline bool operator==(CXCursorKind l, const CXCursor &r)
 {
     return l == clang_getCursorKind(r);
@@ -64,6 +65,7 @@ inline bool operator!=(const CXCursor &l, CXCursorKind r)
 {
     return clang_getCursorKind(l) != r;
 }
+
 inline bool operator!=(CXCursorKind l, const CXCursor &r)
 {
     return l != clang_getCursorKind(r);
@@ -73,6 +75,7 @@ inline bool operator==(const CXCursor &l, const CXCursor &r)
 {
     return clang_equalCursors(l, r);
 }
+
 inline bool operator!=(const CXCursor &l, const CXCursor &r)
 {
     return !clang_equalCursors(l, r);
@@ -621,18 +624,22 @@ inline CXCursorKind targetsValueKind(uint16_t val)
 {
     return static_cast<CXCursorKind>(val & ~DefinitionBit);
 }
+
 inline bool targetsValueIsDefinition(uint16_t val)
 {
     return val & DefinitionBit;
 }
+
 inline uint16_t createTargetsValue(CXCursorKind kind, bool definition)
 {
     return (kind | (definition ? DefinitionBit : 0));
 }
+
 inline uint16_t createTargetsValue(const CXCursor &cursor)
 {
     return createTargetsValue(clang_getCursorKind(cursor), clang_isCursorDefinition(cursor));
 }
+
 inline int targetRank(CXCursorKind kind)
 {
     switch (kind) {
@@ -658,19 +665,37 @@ inline int targetRank(CXCursorKind kind)
         return 2;
     }
 }
-inline Symbol bestTarget(const Set<Symbol> &targets)
+
+inline int bestRank(const Symbol &symbol, CXCursorKind *kindPtr = 0)
 {
-    Symbol ret;
-    int bestRank = -1;
-    for (auto t : targets) {
-        const int rank = targetRank(t.kind);
-        if (rank > bestRank || (rank == bestRank && t.isDefinition())) {
-            ret = t;
-            bestRank = rank;
+    if (kindPtr)
+        *kindPtr = CXCursor_FirstInvalid;
+    int ret = 0;
+    for (CXCursorKind kind : symbol.kinds) {
+        const int rank = targetRank(kind);
+        if (rank > 0) {
+            ret = rank;
+            if (kindPtr)
+                *kindPtr = kind;
         }
     }
     return ret;
 }
+
+inline Symbol bestTarget(const Set<Symbol> &targets)
+{
+    Symbol ret;
+    int best = -1;
+    for (auto t : targets) {
+        const int rank = bestRank(t);
+        if (rank > best || (rank == best && t.isDefinition())) {
+            ret = t;
+            best = rank;
+        }
+    }
+    return ret;
+}
+
 inline String xmlEscape(const String& xml)
 {
     if (xml.isEmpty())
@@ -792,6 +817,7 @@ inline bool isValid(CXCursorKind kind)
 {
     return !clang_isInvalid(kind);
 }
+
 inline bool isValid(const CXSourceLocation &location)
 {
     return !!location;

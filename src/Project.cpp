@@ -1313,7 +1313,7 @@ List<RTags::SortedSymbol> Project::sort(const Set<Symbol> &symbols, Flags<QueryM
             } else if (flags & QueryMessage::DefinitionOnly && !node.isDefinition) {
                 continue;
             }
-            node.kind = symbol.kind;
+            node.kind = symbol.bestKind();
         }
         sorted.push_back(node);
     }
@@ -1449,15 +1449,17 @@ Set<Symbol> Project::findTargets(const Symbol &symbol)
     Set<Symbol> ret;
     if (symbol.isNull() || symbol.flags & Symbol::ImplicitDestruction)
         return ret;
-    auto sameKind = [&symbol](CXCursorKind kind) {
-        if (kind == symbol.kind)
-            return true;
-        if (symbol.isClass())
-            return kind == CXCursor_ClassDecl || kind == CXCursor_StructDecl;
+    auto sameKind = [&symbol](const Symbol &c) {
+        for (CXCursorKind kind : symbol.kinds) {
+            for (CXCursorKind ckind : c.kinds) {
+                if (kind == ckind)
+                    return true;
+            }
+        }
         return false;
     };
 
-    switch (symbol.kind) {
+    switch (symbol.singleKind()) {
     case CXCursor_ClassDecl:
     case CXCursor_ClassTemplate:
     case CXCursor_StructDecl:
@@ -1473,13 +1475,13 @@ Set<Symbol> Project::findTargets(const Symbol &symbol)
         const Set<Symbol> symbols = findByUsr(symbol.usr, symbol.location.fileId(),
                                               symbol.isDefinition() ? ArgDependsOn : DependsOnArg, symbol.location);
         for (const auto &c : symbols) {
-            if (sameKind(c.kind) && symbol.isDefinition() != c.isDefinition()) {
+            if (sameKind(c) && symbol.isDefinition() != c.isDefinition()) {
                 ret.insert(c);
                 break;
             }
         }
 
-        if (!ret.isEmpty() || (symbol.kind != CXCursor_VarDecl && symbol.kind != CXCursor_FieldDecl))
+        if (!ret.isEmpty() || (!(symbol & CXCursor_VarDecl) && !(symbol & CXCursor_FieldDecl)))
             break; }
         // fall through
     default:
@@ -1592,7 +1594,7 @@ static Set<Symbol> findReferences(const Symbol &in,
     if (in.isReference()) {
         const Symbol target = project->findTarget(in);
         if (!target.isNull()) {
-            if (target.kind != CXCursor_MacroExpansion) {
+            if (!(target & CXCursor_MacroExpansion)) {
                 s = target;
             } else {
                 s = in;
@@ -1610,35 +1612,37 @@ static Set<Symbol> findReferences(const Symbol &in,
         location = s.location;
 
     // error() << "findReferences" << s.location << in.location << s.kind;
-    switch (s.kind) {
-    case CXCursor_CXXMethod:
-        if (s.flags & Symbol::VirtualMethod) {
-            inputs = project->findVirtuals(s);
+    if (s.kinds.size() == 1) {
+        switch (s.singleKind()) {
+        case CXCursor_CXXMethod:
+            if (s.flags & Symbol::VirtualMethod) {
+                inputs = project->findVirtuals(s);
+                break;
+            }
+            // fall through
+        case CXCursor_FunctionTemplate:
+        case CXCursor_FunctionDecl:
+        case CXCursor_ClassTemplate:
+        case CXCursor_ClassDecl:
+        case CXCursor_StructDecl:
+        case CXCursor_UnionDecl:
+        case CXCursor_VarDecl:
+        case CXCursor_TypedefDecl:
+        case CXCursor_Namespace:
+        case CXCursor_Constructor:
+        case CXCursor_Destructor:
+        case CXCursor_ConversionFunction:
+        case CXCursor_NamespaceAlias:
+            inputs = project->findByUsr(s.usr, location.fileId(),
+                                        s.isDefinition() ? Project::ArgDependsOn : Project::DependsOnArg,
+                                        in.location);
             break;
+        default:
+            inputs.insert(s);
+            break;
+        case CXCursor_FirstInvalid:
+            return Set<Symbol>();
         }
-        // fall through
-    case CXCursor_FunctionTemplate:
-    case CXCursor_FunctionDecl:
-    case CXCursor_ClassTemplate:
-    case CXCursor_ClassDecl:
-    case CXCursor_StructDecl:
-    case CXCursor_UnionDecl:
-    case CXCursor_VarDecl:
-    case CXCursor_TypedefDecl:
-    case CXCursor_Namespace:
-    case CXCursor_Constructor:
-    case CXCursor_Destructor:
-    case CXCursor_ConversionFunction:
-    case CXCursor_NamespaceAlias:
-        inputs = project->findByUsr(s.usr, location.fileId(),
-                                    s.isDefinition() ? Project::ArgDependsOn : Project::DependsOnArg,
-                                    in.location);
-        break;
-    default:
-        inputs.insert(s);
-        break;
-    case CXCursor_FirstInvalid:
-        return Set<Symbol>();
     }
     if (inputsPtr)
         *inputsPtr = inputs;
@@ -1649,13 +1653,13 @@ Set<Symbol> Project::findCallers(const Symbol &symbol)
 {
     const bool isClazz = symbol.isClass();
     return ::findReferences(symbol, shared_from_this(), [isClazz](const Symbol &input, const Symbol &ref) {
-            if (isClazz && (ref.isConstructorOrDestructor() || ref.kind == CXCursor_CallExpr))
+            if (isClazz && (ref.isConstructorOrDestructor() || ref & CXCursor_CallExpr))
                 return false;
             if (ref.isReference()
-                || (input.kind == CXCursor_Constructor && (ref.kind == CXCursor_VarDecl || ref.kind == CXCursor_FieldDecl))) {
+                || (input & CXCursor_Constructor && (ref & CXCursor_VarDecl || ref & CXCursor_FieldDecl))) {
                 return true;
             }
-            if (input.kind == CXCursor_ClassTemplate && ref.flags & Symbol::TemplateSpecialization) {
+            if (input & CXCursor_ClassTemplate && ref.flags & Symbol::TemplateSpecialization) {
                 return true;
             }
             return false;
@@ -1683,7 +1687,7 @@ Set<Symbol> Project::findAllReferences(const Symbol &symbol)
 
 Set<Symbol> Project::findVirtuals(const Symbol &symbol)
 {
-    if (symbol.kind != CXCursor_CXXMethod || !(symbol.flags & Symbol::VirtualMethod))
+    if (!(symbol & CXCursor_CXXMethod) || !(symbol.flags & Symbol::VirtualMethod))
         return Set<Symbol>();
 
     Symbol parent = [this](const Symbol &sym) {
@@ -1710,7 +1714,7 @@ Set<Symbol> Project::findVirtuals(const Symbol &symbol)
     symSet.insert(parent);
     Set<Symbol> ret = ::findReferences(symSet, shared_from_this(), [](const Symbol &, const Symbol &ref) {
             // error() << "considering" << ref.location << ref.kindSpelling();
-            if (ref.kind == CXCursor_CXXMethod) {
+            if (ref & CXCursor_CXXMethod) {
                 return true;
             }
             return false;

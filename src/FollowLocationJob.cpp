@@ -37,12 +37,12 @@ int FollowLocationJob::execute()
 
     // if you invoke a destructor explicitly there's a typeref on the class
     // name. This finds the destructor instead.
-    if ((symbol.kind == CXCursor_TypeRef || symbol.kind == CXCursor_TemplateRef) && idx > 0) {
+    if ((symbol & CXCursor_TypeRef || symbol & CXCursor_TemplateRef) && idx > 0) {
         auto symbols = project()->openSymbols(location.fileId());
         if (!symbols || !symbols->count())
             return 1;
         const Symbol prev = symbols->valueAt(idx - 1);
-        if (prev.kind == CXCursor_MemberRefExpr
+        if (prev & CXCursor_MemberRefExpr
             && prev.location.column() == symbol.location.column() - 1
             && prev.location.line() == symbol.location.line()
             && prev.symbolName.contains("~")) {
@@ -62,8 +62,8 @@ int FollowLocationJob::execute()
 
     auto targets = project()->findTargets(symbol).toList();
     targets.sort([](const Symbol &l, const Symbol &r) {
-            const int lrank = RTags::targetRank(l.kind);
-            const int rrank = RTags::targetRank(r.kind);
+            const int lrank = RTags::bestRank(l);
+            const int rrank = RTags::bestRank(r);
             if (lrank != rrank)
                 return lrank > rrank;
             if (l.isDefinition() != r.isDefinition())
@@ -76,7 +76,7 @@ int FollowLocationJob::execute()
     auto writeTarget = [&rank, this, &seen](const Symbol &target) {
         if (seen.insert(target.location)) {
             write(target.location);
-            rank = RTags::targetRank(target.kind);
+            rank = target.bestRank();
         }
     };
     for (const auto &target : targets) {

@@ -69,7 +69,7 @@ int IncludeFileJob::execute()
             for (const Path &path : headersForSymbol(project(), loc)) {
                 bool found = false;
                 const Symbol sym = project()->findSymbol(loc);
-                switch (sym.kind) {
+                switch (sym.singleKind()) {
                 case CXCursor_ClassDecl:
                 case CXCursor_StructDecl:
                 case CXCursor_ClassTemplate:

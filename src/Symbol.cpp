@@ -18,11 +18,6 @@
 #include "Symbol.h"
 #include "Project.h"
 
-uint16_t Symbol::targetsValue() const
-{
-    return RTags::createTargetsValue(kind, isDefinition());
-}
-
 static inline const char *linkageSpelling(CXLinkageKind kind)
 {
     switch (kind) {
@@ -137,11 +132,11 @@ String Symbol::toString(const std::shared_ptr<Project> &project,
         writePiece("Range", "range", String::format<32>("%d:%d-%d:%d", startLine, startColumn, endLine, endColumn));
 
 #if CINDEX_VERSION_MINOR > 1
-    if (kind == CXCursor_EnumConstantDecl)
+    if (operator&(CXCursor_EnumConstantDecl))
         writePiece("Enum Value", "enumvalue",
                    String::format<32>("%lld/0x%0llx", static_cast<long long>(enumValue), static_cast<long long>(enumValue)));
 
-    if (isDefinition() && RTags::isFunction(kind))
+    if (isDefinition() && isFunction())
         writePiece("Stack cost", "stackcost", std::to_string(stackCost));
 #endif
     writePiece(0, "linkage", linkageSpelling(linkage));
@@ -220,14 +215,14 @@ String Symbol::toString(const std::shared_ptr<Project> &project,
     return ret;
 }
 
-String Symbol::kindSpelling(uint16_t kind)
+String Symbol::kindSpelling(CXCursorKind kind)
 {
     return kind ? RTags::eatString(clang_getCursorKindSpelling(static_cast<CXCursorKind>(kind))) : String("<none>");
 }
 
 String Symbol::displayName() const
 {
-    switch (kind) {
+    switch (singleKind()) {
     case CXCursor_FunctionTemplate:
     case CXCursor_FunctionDecl:
     case CXCursor_CXXMethod:
@@ -254,12 +249,37 @@ String Symbol::displayName() const
 
 bool Symbol::isReference() const
 {
-    return RTags::isReference(kind) || (linkage == CXLinkage_External && !isDefinition() && !RTags::isFunction(kind));
+    CXCursorKind single = CXCursor_InvalidFile;
+    for (CXCursorKind kind : kinds) {
+        if (RTags::isReference(kind))
+            return true;
+        single = kind;
+    }
+    if (linkage == CXLinkage_External && !isDefinition() && !RTags::isFunction(single))
+        return true;
+    return false;
 }
 
 bool Symbol::isContainer() const
 {
-    return RTags::isContainer(kind);
+    return RTags::isContainer(singleKind());
+}
+
+bool Symbol::isFunction() const
+{
+    return RTags::isFunction(singleKind());
+}
+
+int Symbol::bestRank() const
+{
+    return RTags::bestRank(*this);
+}
+
+CXCursorKind Symbol::bestKind() const
+{
+    CXCursorKind ret;
+    RTags::bestRank(*this, &ret);
+    return ret;
 }
 
 Value Symbol::toValue(const std::shared_ptr<Project> &project,
@@ -327,9 +347,7 @@ Value Symbol::toValue(const std::shared_ptr<Project> &project,
             if (filterPiece("symbollength"))
                 ret["symbolLength"] = symbol.symbolLength;
             if (filterPiece("kind")) {
-                String str;
-                Log(&str) << symbol.kind;
-                ret["kind"] = str;
+                ret["kind"] = symbol.kindSpelling();
             }
             if (filterPiece("linkage")) {
                 String str;
@@ -353,12 +371,12 @@ Value Symbol::toValue(const std::shared_ptr<Project> &project,
                 ret["fieldOffset"] = symbol.fieldOffset;
             if (symbol.alignment >= 0 && filterPiece("alignment"))
                 ret["alignment"] = symbol.alignment;
-            if (symbol.kind == CXCursor_EnumConstantDecl && filterPiece("enumvalue"))
+            if (symbol & CXCursor_EnumConstantDecl && filterPiece("enumvalue"))
                 ret["enumValue"] = symbol.enumValue;
             if (symbol.isDefinition()) {
                 if (filterPiece("definition"))
                     ret["definition"] = true;
-                if (RTags::isFunction(symbol.kind) && filterPiece("stackcost"))
+                if (symbol.isFunction() && filterPiece("stackcost"))
                     ret["stackCost"] = symbol.stackCost;
             } else if (symbol.isReference() && filterPiece("reference")) {
                 ret["reference"] = true;

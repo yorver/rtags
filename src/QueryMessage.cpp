@@ -139,9 +139,14 @@ bool QueryMessage::KindFilters::filter(const Symbol &symbol) const
     if (isEmpty())
         return true;
 
-    String spelling = Symbol::kindSpelling(symbol.kind).toLower();
-    spelling.remove(' ');
-    auto match = [&spelling, &symbol](const Map<String, Flags<DefinitionType> > &map, bool hasWildcardsOrCategories) {
+    List<String> spellings;
+    spellings.reserve(symbol.kinds.size());
+    for (CXCursorKind kind : symbol.kinds) {
+        String spelling = Symbol::kindSpelling(kind).toLower();
+        spelling.remove(' ');
+        spellings.append(spelling);
+    }
+    auto match = [&symbol](const Map<String, Flags<DefinitionType> > &map, const String &spelling, bool hasWildcardsOrCategories) {
         auto it = map.find(spelling);
         auto matchDefinition = [&symbol](Flags<DefinitionType> f) {
             f &= Definition|NotDefinition;
@@ -174,20 +179,30 @@ bool QueryMessage::KindFilters::filter(const Symbol &symbol) const
                         if (symbol.isReference())
                             return true;
                     } else if (pair.first == "statements") {
-                        if (clang_isStatement(symbol.kind))
-                            return true;
+                        for (CXCursorKind kind : symbol.kinds) {
+                            if (clang_isStatement(kind))
+                                return true;
+                        }
                     } else if (pair.first == "declarations") {
-                        if (clang_isDeclaration(symbol.kind))
-                            return true;
+                        for (CXCursorKind kind : symbol.kinds) {
+                            if (clang_isDeclaration(kind))
+                                return true;
+                        }
                     } else if (pair.first == "expressions") {
-                        if (clang_isExpression(symbol.kind))
-                            return true;
+                        for (CXCursorKind kind : symbol.kinds) {
+                            if (clang_isExpression(kind))
+                                return true;
+                        }
                     } else if (pair.first == "attributes") {
-                        if (clang_isAttribute(symbol.kind))
-                            return true;
+                        for (CXCursorKind kind : symbol.kinds) {
+                            if (clang_isAttribute(kind))
+                                return true;
+                        }
                     } else if (pair.first == "preprocessing") {
-                        if (clang_isPreprocessing(symbol.kind))
-                            return true;
+                        for (CXCursorKind kind : symbol.kinds) {
+                            if (clang_isPreprocessing(kind))
+                                return true;
+                        }
                     } else {
                         assert(0);
                     }
@@ -196,14 +211,21 @@ bool QueryMessage::KindFilters::filter(const Symbol &symbol) const
         }
         return false;
     };
-    if (!out.isEmpty() && match(out, flags & (OutHasWildcards|OutHasCategories))) {
+    if (!out.isEmpty()) {
+        for (const String &spelling : spellings) {
+            if (match(out, spelling, flags & (OutHasWildcards|OutHasCategories))) {
+                return false;
+            }
+        }
+    }
+    if (!in.isEmpty()) {
+        for (const String &spelling : spellings) {
+            if (match(in, spelling, flags & (InHasWildcards|InHasCategories)))
+                return true;
+        }
         return false;
     }
-    if (in.isEmpty() || match(in, flags & (InHasWildcards|InHasCategories))) {
-        return true;
-    } else {
-        return false;
-    }
+    return true;
 }
 
 void QueryMessage::KindFilters::insert(const String &arg)

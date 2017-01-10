@@ -997,17 +997,12 @@ bool ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind, Lo
             reffedCursor = findSymbol(refLoc, &result);
         }
     }
-    int16_t refTargetValue;
-    if (result == Found) {
-        refTargetValue = reffedCursor.targetsValue();
-    } else {
-        refTargetValue = RTags::createTargetsValue(refKind, clang_isCursorDefinition(ref));
-    }
+    int16_t refTargetValue = RTags::createTargetsValue(refKind, clang_isCursorDefinition(ref));
 
     Symbol *c = &unit(location)->symbols[location];
     assert(c);
     bool setTarget = true;
-    if (c->kind == CXCursor_MacroExpansion) {
+    if (*c & CXCursor_MacroExpansion) {
         for (const auto &t : targets) {
             if (RTags::targetsValueKind(t.second) == CXCursor_MacroDefinition) {
                 for (const auto &u : mUnits) { // ### should only search the ones we depend on
@@ -1070,8 +1065,9 @@ bool ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind, Lo
     // if they're not considered references
 
     if (setTarget && !c->isNull()) {
-        if (RTags::isCursor(c->kind))
+        if (RTags::isCursor(c->singleKind()))
             return true;
+        c->kinds.insert(kind);
         auto best = targets.end();
         int bestRank = RTags::targetRank(RTags::targetsValueKind(refTargetValue));
         for (auto it = targets.begin(); it != targets.end(); ++it) {
@@ -1084,6 +1080,8 @@ bool ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind, Lo
         if (best != targets.end() && best->first != refUsr) { // another target is better
             return true;
         }
+    } else {
+        c->kinds.insert(kind);
     }
 
 #if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 35)
@@ -1105,7 +1103,6 @@ bool ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind, Lo
     CXSourceRange range = clang_getCursorExtent(cursor);
     uint16_t symLength;
     setRange(*c, range, &symLength);
-    c->kind = kind;
     c->location = location;
 
     c->symbolName = RTags::eatString(clang_getCursorSpelling(cursor));
@@ -1151,9 +1148,9 @@ bool ClangIndexer::handleReference(const CXCursor &cursor, CXCursorKind kind, Lo
                         sym.symbolName = memberSpelling.data();
                         sym.symbolLength = sym.symbolName.size();
                         if (kind == CXCursor_DeclRefExpr) {
-                            sym.kind = CXCursor_MemberRefExpr;
+                            sym.kinds.insert(CXCursor_MemberRefExpr);
                         } else {
-                            sym.kind = CXCursor_DeclRefExpr; // yes this is weird
+                            sym.kinds.insert(CXCursor_DeclRefExpr); // yes this is weird
                         }
                         sym.flags = Symbol::TemplateReference;
                         setType(sym, clang_getCursorType(mParents.last()));
@@ -1220,7 +1217,7 @@ void ClangIndexer::handleInclude(const CXCursor &cursor, CXCursorKind kind, Loca
             unit(location)->symbolNames[(include + path.fileName())].insert(location);
             mIndexDataMessage.includes().push_back(std::make_pair(location.fileId(), refLoc.fileId()));
             c.symbolName = "#include " + RTags::eatString(clang_getCursorDisplayName(cursor));
-            c.kind = cursor.kind;
+            c.kinds.insert(cursor.kind);
             c.symbolLength = c.symbolName.size() + 2;
             c.location = location;
             unit(location)->targets[location][refLoc.toString(Location::NoColor|Location::ConvertToRelative)] = 0; // ### what targets value to create for this?
@@ -1247,7 +1244,7 @@ void ClangIndexer::handleLiteral(const CXCursor &cursor, CXCursorKind kind, Loca
     if (!s.isNull())
         return;
     s.location = location;
-    s.kind = kind;
+    s.kinds.insert(kind);
     setType(s, type);
     CXSourceRange range = clang_getCursorExtent(cursor);
     setRange(s, range, &s.symbolLength);
@@ -1290,7 +1287,7 @@ CXChildVisitResult ClangIndexer::handleStatement(const CXCursor &cursor, CXCurso
         };
         if (mScopeStack.isEmpty() || mScopeStack.back().end != scope.end) {
             c.location = location;
-            c.kind = kind;
+            c.kinds.insert(kind);
             c.symbolName = "{}";
             c.symbolLength = 1;
             // should it have a symbolLength?
@@ -1311,10 +1308,9 @@ CXChildVisitResult ClangIndexer::handleStatement(const CXCursor &cursor, CXCurso
         for (int i=mScopeStack.size() - 1; i>=0; --i) {
             const auto &scope = mScopeStack.at(i);
             if (scope.type == Scope::FunctionDefinition) {
-                c.kind = kind;
+                c.kinds.insert(kind);
                 c.symbolName = "return";
                 u->symbolNames[c.symbolName].insert(location);
-                c.kind = kind;
                 c.symbolLength = 6;
                 c.location = location;
                 setRange(c, clang_getCursorExtent(cursor));
@@ -1334,7 +1330,7 @@ CXChildVisitResult ClangIndexer::handleStatement(const CXCursor &cursor, CXCurso
         if (!c.isNull())
             break;
         setRange(c, clang_getCursorExtent(cursor));
-        c.kind = kind;
+        c.kinds.insert(kind);
         switch (kind) {
         case CXCursor_SwitchStmt: c.symbolName = "switch"; break;
         case CXCursor_IfStmt: c.symbolName = "if"; break;
@@ -1382,7 +1378,7 @@ CXChildVisitResult ClangIndexer::handleStatement(const CXCursor &cursor, CXCurso
         setRange(c, clang_getCursorExtent(cursor));
         c.symbolName = kind == CXCursor_BreakStmt ? "break" : "continue";
         u->symbolNames[c.symbolName].insert(location);
-        c.kind = kind;
+        c.kinds.insert(kind);
         c.symbolLength = c.symbolName.size();
         c.location = location;
         u->targets[location][target.toString(Location::NoColor|Location::ConvertToRelative)] = 0;
@@ -1451,7 +1447,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
     if (cursorPtr)
         *cursorPtr = &c;
     if (!c.isNull()) {
-        if (c.kind == CXCursor_MacroExpansion) {
+        if (c & CXCursor_MacroExpansion) {
             addNamePermutations(cursor, location, RTags::Type_Cursor);
             unit(location)->usrs[usr].insert(location);
         }
@@ -1524,7 +1520,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
                         } else { // built-in type probably
                             Symbol &sym = unit(loc)->symbols[loc];
                             if (sym.isNull()) {
-                                sym.kind = CXCursor_NoDeclFound;
+                                sym.kinds.insert(CXCursor_NoDeclFound);
                                 sym.type = c.type;
                                 sym.symbolLength = 4;
                                 sym.endLine = c.startLine;
@@ -1580,7 +1576,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
                     scopeEnd.location = scopeEndLocation;
                     scopeEnd.symbolLength = 1;
                     scopeEnd.flags = Symbol::ImplicitDestruction;
-                    scopeEnd.kind = CXCursor_CallExpr;
+                    scopeEnd.kinds.insert(CXCursor_CallExpr);
                     // error() << "Found destructor" << destructor << "for" << cursor << "in scope that ends on" << mScopeStack.back();
                 }
                 break; }
@@ -1697,7 +1693,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
     }
 #endif
 
-    c.kind = kind;
+    c.kinds.insert(kind);
     c.linkage = clang_getCursorLinkage(cursor);
     // apparently some function decls will give a different usr for
     // their definition and their declaration.  Using the canonical
@@ -1705,7 +1701,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
     // JavaScriptCore for an example.
     unit(location)->usrs[c.usr].insert(location);
     if (c.linkage == CXLinkage_External && !c.isDefinition()) {
-        switch (c.kind) {
+        switch (kind) {
         case CXCursor_FunctionDecl:
         case CXCursor_VarDecl: {
             const auto k = clang_getCursorKind(clang_getCursorSemanticParent(cursor));
@@ -1725,7 +1721,7 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
     }
 
     std::unordered_set<CXCursor> cursors;
-    switch (c.kind) {
+    switch (kind) {
     case CXCursor_CXXMethod:
 #if CINDEX_VERSION >= CINDEX_VERSION_ENCODE(0, 20)
         if (clang_CXXMethod_isPureVirtual(cursor))
@@ -1800,19 +1796,19 @@ CXChildVisitResult ClangIndexer::handleCursor(const CXCursor &cursor, CXCursorKi
         }
     }
 
-    if (RTags::isFunction(c.kind)) {
+    if (RTags::isFunction(kind)) {
         const bool definition = c.flags & Symbol::Definition;
         mScopeStack.append({definition ? Scope::FunctionDefinition : Scope::FunctionDeclaration, definition ? &c : 0,
                 Location(location.fileId(), c.startLine, c.startColumn),
                 Location(location.fileId(), c.endLine, c.endColumn - 1)});
-        if (c.kind == CXCursor_FunctionTemplate)
+        if (kind == CXCursor_FunctionTemplate)
             ++mInTemplateFunction;
         visit(cursor);
-        if (c.kind == CXCursor_FunctionTemplate)
+        if (kind == CXCursor_FunctionTemplate)
             --mInTemplateFunction;
         mScopeStack.removeLast();
         return CXChildVisit_Continue;
-    } else if (c.kind == CXCursor_ClassTemplate) {
+    } else if (kind == CXCursor_ClassTemplate) {
         ++mInTemplateFunction;
         visit(cursor);
         --mInTemplateFunction;

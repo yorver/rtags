@@ -32,7 +32,7 @@ class Project;
 struct Symbol
 {
     Symbol()
-        : symbolLength(0), kind(CXCursor_FirstInvalid), type(CXType_Invalid), linkage(CXLinkage_Invalid),
+        : symbolLength(0), type(CXType_Invalid), linkage(CXLinkage_Invalid),
           flags(None), enumValue(0), startLine(-1), endLine(-1), startColumn(-1), endColumn(-1),
           size(-1), fieldOffset(-1), alignment(-1)
     {}
@@ -72,7 +72,17 @@ struct Symbol
     } argumentUsage; // set for references that are used as an argument only
 
     uint16_t symbolLength;
-    CXCursorKind kind;
+    Set<CXCursorKind> kinds;
+
+    bool operator&(CXCursorKind kind) const { return kinds.contains(kind); }
+    CXCursorKind singleKind() const
+    {
+        if (kinds.size() == 1) {
+            return *kinds.begin();
+        }
+        return CXCursor_FirstInvalid;
+    }
+
     CXTypeKind type;
     CXLinkageKind linkage;
     enum Flag {
@@ -103,7 +113,7 @@ struct Symbol
     int32_t size; // sizeof
     int16_t fieldOffset, alignment; // bits
 
-    bool isNull() const { return location.isNull() || clang_isInvalid(kind); }
+    bool isNull() const { return location.isNull() || kinds.isEmpty(); }
     void clear()
     {
         location.clear();
@@ -114,7 +124,7 @@ struct Symbol
         baseClasses.clear();
         arguments.clear();
         symbolLength = 0;
-        kind = CXCursor_FirstInvalid;
+        kinds.clear();
         type = CXType_Invalid;
         enumValue = 0;
         flags = 0;
@@ -123,7 +133,6 @@ struct Symbol
         startLine = startColumn = endLine = endColumn = size = fieldOffset = alignment = -1;
     }
 
-    uint16_t targetsValue() const;
     static bool isClass(CXCursorKind kind)
     {
         switch (kind) {
@@ -137,10 +146,10 @@ struct Symbol
         return false;
     }
 
-    bool isClass() const { return isClass(kind); }
+    bool isClass() const { return isClass(singleKind()); }
     bool isConstructorOrDestructor() const
     {
-        switch (kind) {
+        switch (singleKind()) {
         case CXCursor_Constructor:
         case CXCursor_Destructor:
             return true;
@@ -151,6 +160,9 @@ struct Symbol
     }
     bool isReference() const;
     bool isContainer() const;
+    bool isFunction() const;
+    int bestRank() const;
+    CXCursorKind bestKind() const;
 
     inline bool isDefinition() const { return flags & Definition; }
 
@@ -172,9 +184,18 @@ struct Symbol
                     Flags<ToStringFlag> toStringFlags = DefaultFlags,
                     Flags<Location::ToStringFlag> = Flags<Location::ToStringFlag>(),
                     const Set<String> &pieceFilters = Set<String>()) const;
-    String kindSpelling() const { return kindSpelling(kind); }
+    String kindSpelling() const
+    {
+        String ret;
+        for (CXCursorKind kind : kinds) {
+            if (!ret.isEmpty())
+                ret += ' ';
+            ret += kindSpelling(kind);
+        }
+        return ret;
+    }
     String displayName() const;
-    static String kindSpelling(uint16_t kind);
+    static String kindSpelling(CXCursorKind kind);
 
     bool operator<(const Symbol &other) const { return location < other.location; }
 };
@@ -213,11 +234,25 @@ template <> inline Deserializer &operator>>(Deserializer &s, Symbol::ArgumentUsa
     return s;
 }
 
+template <> inline Serializer &operator<<(Serializer &s, const CXCursorKind &kind)
+{
+    s << static_cast<uint16_t>(kind);
+    return s;
+}
+
+template <> inline Deserializer &operator>>(Deserializer &d, CXCursorKind &kind)
+{
+    uint16_t k;
+    d >> k;
+    kind = static_cast<CXCursorKind>(k);
+    return d;
+}
+
 template <> inline Serializer &operator<<(Serializer &s, const Symbol &t)
 {
     s << t.location << t.argumentUsage << t.symbolName << t.usr
       << t.typeName << t.baseClasses << t.arguments << t.symbolLength
-      << static_cast<uint16_t>(t.kind) << static_cast<uint16_t>(t.type)
+      << t.kinds << static_cast<uint16_t>(t.type)
       << static_cast<uint8_t>(t.linkage) << t.flags << t.briefComment << t.xmlComment
       << t.enumValue << t.startLine << t.endLine << t.startColumn << t.endColumn
       << t.size << t.fieldOffset << t.alignment;
@@ -226,16 +261,15 @@ template <> inline Serializer &operator<<(Serializer &s, const Symbol &t)
 
 template <> inline Deserializer &operator>>(Deserializer &s, Symbol &t)
 {
-    uint16_t kind, type;
+    uint16_t type;
     uint8_t linkage;
     s >> t.location >> t.argumentUsage >> t.symbolName
       >> t.usr >> t.typeName >> t.baseClasses >> t.arguments
-      >> t.symbolLength >> kind >> type >> linkage >> t.flags
+      >> t.symbolLength >> t.kinds >> type >> linkage >> t.flags
       >> t.briefComment >> t.xmlComment >> t.enumValue
       >> t.startLine >> t.endLine >> t.startColumn >> t.endColumn
       >> t.size >> t.fieldOffset >> t.alignment;
 
-    t.kind = static_cast<CXCursorKind>(kind);
     t.type = static_cast<CXTypeKind>(type);
     t.linkage = static_cast<CXLinkageKind>(linkage);
 

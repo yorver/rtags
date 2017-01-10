@@ -76,7 +76,7 @@ int ReferencesJob::execute()
 
         if (sym.isReference()) {
             const Symbol target = proj->findTarget(sym);
-            if (!target.isNull() && target.kind != CXCursor_MacroExpansion)
+            if (!target.isNull() && !(target & CXCursor_MacroExpansion))
                 sym = target;
         }
         if (sym.isNull())
@@ -103,7 +103,7 @@ int ReferencesJob::execute()
             const Set<Symbol> all = proj->findAllReferences(sym);
             for (const auto &symbol : all) {
                 if (rename) {
-                    if (symbol.kind == CXCursor_MacroExpansion && sym.kind != CXCursor_MacroDefinition)
+                    if (symbol & CXCursor_MacroExpansion && !(sym & CXCursor_MacroDefinition))
                         continue;
                     if (symbol.flags & Symbol::AutoRef)
                         continue;
@@ -117,7 +117,7 @@ int ReferencesJob::execute()
                 } else if (definitionOnly) {
                     continue;
                 }
-                references[symbol.location] = std::make_pair(def, symbol.kind);
+                references[symbol.location] = std::make_pair(def, symbol.bestKind());
             }
         } else if (queryFlags() & QueryMessage::FindVirtuals) {
             const Set<Symbol> virtuals = proj->findVirtuals(sym);
@@ -129,7 +129,7 @@ int ReferencesJob::execute()
                 } else if (definitionOnly) {
                     continue;
                 }
-                references[symbol.location] = std::make_pair(def, symbol.kind);
+                references[symbol.location] = std::make_pair(def, symbol.bestKind());
             }
         } else {
             const Set<Symbol> symbols = proj->findCallers(sym);
