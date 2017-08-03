@@ -86,7 +86,8 @@ public:
         AllowWErrorAndWFatalErrors = (1ull << 29),
         NoRealPath = (1ull << 30),
         Separate32BitAnd64Bit = (1ull << 31),
-        SourceIgnoreIncludePathDifferencesInUsr = (1ull << 32)
+        SourceIgnoreIncludePathDifferencesInUsr = (1ull << 32),
+        StdIn = (1ull << 33)
     };
     struct Options {
         Options()
@@ -140,7 +141,10 @@ public:
         None = 0x0,
         HasSandboxRoot = 0x1
     };
+    Flags<LogOutput::LogFlag> logFlags() const { return mLogFlags; }
 private:
+    void onStdIn(int fd, unsigned int flags);
+    void processCommandLine(const String &args);
     String guessArguments(const String &args, const Path &pwd, const Path &projectRootOverride) const;
     bool load();
     void onNewConnection(SocketServer *server);
@@ -220,6 +224,9 @@ private:
     CompletionThread *mCompletionThread;
     Set<uint32_t> mActiveBuffers;
     Set<std::shared_ptr<Connection> > mConnections;
+
+    String mStdInBuffer;
+    Flags<LogOutput::LogFlag> mLogFlags;
 
     Signal<std::function<void()> > mIndexDataMessageReceived;
     friend void saveFileIds();

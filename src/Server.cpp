@@ -181,7 +181,7 @@ bool Server::init(const Options &options)
     }
 
     {
-        Log l(LogLevel::Error, LogOutput::StdOut|LogOutput::TrailingNewLine);
+        Log l(LogLevel::Error, mLogFlags|LogOutput::TrailingNewLine);
         l << "Running with" << mOptions.jobCount << "jobs, using args:"
           << String::join(mOptions.defaultArguments, ' ') << '\n';
         l << "Includepaths:";
@@ -322,6 +322,16 @@ bool Server::initServers()
         return false;
     mUnixServer->newConnection().connect(std::bind(&Server::onNewConnection, this, std::placeholders::_1));
 
+    if (mOptions.options & StdIn) {
+        SocketClient::setFlags(STDIN_FILENO, O_NONBLOCK, F_GETFL, F_SETFL);
+        EventLoop::eventLoop()->registerSocket(STDIN_FILENO, EventLoop::SocketRead,
+                                               std::bind(&Server::onStdIn, this,
+                                                         std::placeholders::_1, std::placeholders::_2));
+
+    } else {
+        mLogFlags |= LogOutput::StdOut;
+    }
+
     return true;
 }
 
@@ -381,7 +391,7 @@ void Server::onNewMessage(const std::shared_ptr<Message> &message, const std::sh
         break;
     case LogOutputMessage::MessageId: {
         auto msg = std::static_pointer_cast<LogOutputMessage>(message);
-        logDirect(LogLevel::Error, msg->commandLine(), LogOutput::StdOut|LogOutput::TrailingNewLine);
+        logDirect(LogLevel::Error, msg->commandLine(), mLogFlags|LogOutput::TrailingNewLine);
         handleLogOutputMessage(msg, connection);
         break; }
     case VisitFileMessage::MessageId:
@@ -650,7 +660,7 @@ void Server::handleIndexDataMessage(const std::shared_ptr<IndexDataMessage> &mes
 void Server::handleQueryMessage(const std::shared_ptr<QueryMessage> &message, const std::shared_ptr<Connection> &conn)
 {
     Log(message->flags() & QueryMessage::SilentQuery ? LogLevel::Warning : LogLevel::Error,
-        LogOutput::StdOut|LogOutput::TrailingNewLine) << message->commandLine();
+        mLogFlags|LogOutput::TrailingNewLine) << message->commandLine();
     conn->setSilent(message->flags() & QueryMessage::Silent);
 
     switch (message->type()) {
@@ -2427,4 +2437,123 @@ void Server::prepareCompletion(const std::shared_ptr<QueryMessage> &query, uint3
                 mCompletionThread->prepare(std::move(source), query->unsavedFiles().value(Location::path(fileId)));
         }
     }
+}
+
+void Server::onStdIn(int /* fd */, unsigned int /*flags*/)
+{
+    while (true) {
+        char buf[1024];
+        int read = fread(buf, 1, sizeof(buf), stdin);
+        if (read > 0) {
+            mStdInBuffer.append(buf, read);
+        } else {
+            break;
+        }
+    }
+    size_t last = 0;
+    while (true) {
+        size_t idx = mStdInBuffer.indexOf('\n', last);
+        if (idx != String::npos) {
+            const String commandLine = mStdInBuffer.mid(last, idx - last);
+            processCommandLine(commandLine);
+            last = idx + 1;
+        } else {
+            break;
+        }
+    }
+
+    if (last) {
+        mStdInBuffer.remove(0, last);
+    }
+}
+
+void Server::processCommandLine(const String &commandLine)
+{
+    List<String> args;
+    const size_t size = commandLine.size();
+    size_t idx = 0;
+    const char *data = commandLine.constData();
+    size_t last = String::npos;
+    bool error = false;
+    while (idx < size && !error) {
+        switch (data[idx]) {
+        case '\"':
+        case '\'': {
+            const char quote = data[idx];
+            size_t escape = 0;
+            bool found = false;
+            for (size_t i=idx + 1; i<size; ++i) {
+                if (data[i] == '\\') {
+                    ++escape;
+                    continue;
+                }
+                if (escape % 2 == 0 && data[i] == quote) {
+                    args.append(commandLine.mid(idx + 1, i - idx - 1));
+                    idx = i + 1;
+                    found = true;
+                    break;
+                }
+                escape = 0;
+            }
+            if (!found) {
+                error = true;
+                break;
+            }
+            break; }
+        case '\t':
+        case ' ': // support \<space> ???
+            if (last != String::npos) {
+                args.append(commandLine.mid(last, idx - last));
+                last = String::npos;
+            }
+            break;
+        default:
+            assert(data[idx] != '\n');
+            if (last == String::npos)
+                last = idx;
+            break;
+        }
+        ++idx;
+    }
+    if (last != String::npos) {
+        args.append(commandLine.mid(last));
+    }
+
+    if (args.isEmpty() || error)
+        return;
+
+    if (args.size() == 1) {
+        // if (args[0] == "pwd") {
+        //     char
+        //     printf("
+        // }
+    }
+
+    char **argv = new char*[args.size() + 2];
+    argv[0] = strdup("rc");
+    int argc = 0;
+    for (const String &arg : args) {
+        argv[++argc] = strdup(arg.constData());
+    }
+    argv[++argc] = 0;
+
+    RClient rc;
+    const CommandLineParser::ParseStatus status = rc.parse(argc, argv);
+    for (int i=0; i<argc; ++i) {
+        free(argv[i]);
+    }
+    delete [] argv;
+    printf("GOT STATUS %d\n", status.status);
+    switch (status.status) {
+    case CommandLineParser::Parse_Ok:
+        break;
+    case CommandLineParser::Parse_Error:
+        fprintf(stderr, "%s\n", status.error.constData());
+        break;
+    case CommandLineParser::Parse_Exec:
+        rc.exec();
+        break;
+    }
+
+    // ::error() << "got args" << commandLine << args;
 }

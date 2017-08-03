@@ -412,7 +412,7 @@ bool Project::init()
         int idx = 0;
         bool outputDirty = false;
         if (mDependencies.size() >= 100) {
-            logDirect(LogLevel::Error, String::format<128>("Restoring %s ", mPath.constData()), LogOutput::StdOut);
+            logDirect(LogLevel::Error, String::format<128>("Restoring %s ", mPath.constData()), Server::instance()->logFlags());
             outputDirty = true;
         }
         const std::shared_ptr<Project> project = shared_from_this();
@@ -434,7 +434,7 @@ bool Project::init()
                     if (!errorString.isEmpty()) {
                         if (outputDirty) {
                             outputDirty = false;
-                            logDirect(LogLevel::Error, String("\n"), LogOutput::StdOut);
+                            logDirect(LogLevel::Error, String("\n"), Server::instance()->logFlags());
                         }
                         error() << errorString;
                     }
@@ -448,12 +448,12 @@ bool Project::init()
             }
             if (++idx % 100 == 0) {
                 outputDirty = true;
-                logDirect(LogLevel::Error, ".", 1, LogOutput::StdOut);
+                logDirect(LogLevel::Error, ".", 1, Server::instance()->logFlags());
                 // error("%d/%d (%.2f%%)", idx, count, (idx / static_cast<double>(count)) * 100.0);
             }
         }
         if (outputDirty)
-            logDirect(LogLevel::Error, "\n", 1, LogOutput::StdOut);
+            logDirect(LogLevel::Error, "\n", 1, Server::instance()->logFlags());
         for (uint32_t r : removed) {
             removeDependencies(r);
         }
@@ -758,14 +758,14 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
                                                   String::formatTime(time(0), String::Time).constData(),
                                                   msg->message().constData(),
                                                   String::format<16>("priority %d", job->priority()).constData()),
-                  LogOutput::StdOut|LogOutput::TrailingNewLine);
+                  Server::instance()->logFlags()|LogOutput::TrailingNewLine);
     } else {
         assert(msg->indexerJobFlags() & IndexerJob::Crashed);
         logDirect(LogLevel::Error, String::format("[%3d%%] %d/%d %s %s indexing crashed.",
                                                   static_cast<int>(round((double(idx) / double(mJobCounter)) * 100.0)), idx, mJobCounter,
                                                   String::formatTime(time(0), String::Time).constData(),
                                                   Location::path(fileId).toTilde().constData()),
-                  LogOutput::StdOut|LogOutput::TrailingNewLine);
+                  Server::instance()->logFlags()|LogOutput::TrailingNewLine);
     }
 
     if (mActiveJobs.isEmpty()) {
@@ -775,7 +775,7 @@ void Project::onJobFinished(const std::shared_ptr<IndexerJob> &job, const std::s
         const String m = String::format<1024>("Jobs took %.2fs%s. We're using %lldmb of memory. ",
                                               timerElapsed, mJobsStarted > 1 ? String::format(", (avg %.2fs)", averageJobTime).constData() : "",
                                               static_cast<unsigned long long>(MemoryMonitor::usage() / (1024 * 1024)));
-        Log(LogLevel::Error, LogOutput::StdOut|LogOutput::TrailingNewLine) << m;
+        Log(LogLevel::Error, Server::instance()->logFlags()|LogOutput::TrailingNewLine) << m;
         mJobsStarted = mJobCounter = 0;
 
         // error() << "Finished this
