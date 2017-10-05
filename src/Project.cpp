@@ -524,11 +524,12 @@ inline static const char *severityToString(Diagnostic::Flag type)
     return 0;
 }
 
-static String formatDiagnostics(const Diagnostics &diagnostics, Flags<QueryMessage::Flag> flags, const Set<uint32_t> &filter = Set<uint32_t>())
+static String formatDiagnostics(const Diagnostics &diagnostics, Flags<QueryMessage::Flag> flags, Set<uint32_t> &&filter = Set<uint32_t>())
 {
+    const size_t filterSize = filter.size();
     Diagnostics::const_iterator it;
     Diagnostics::const_iterator end;
-    switch (filter.size()) {
+    switch (filterSize) {
     case 0:
         it = diagnostics.begin();
         end = diagnostics.end();
@@ -572,14 +573,17 @@ static String formatDiagnostics(const Diagnostics &diagnostics, Flags<QueryMessa
         uint32_t lastFileId = 0;
         while (it != end) {
             const uint32_t cur = it->first.fileId();
-            if (filter.size() > 1 && !filter.contains(cur)) {
-                if (cur != lastFileId) {
-                    lastFileId = cur;
+            if (cur != lastFileId) {
+                lastFileId = cur;
+                if (!filterSize || filter.remove(cur)) {
                     currentFile = &checkStyle[it->first.path()];
+                } else {
+                    ++it;
+                    continue;
                 }
-
-                currentFile->push_back(toValue(lastFileId, it->first, it->second));
             }
+            currentFile->push_back(toValue(lastFileId, it->first, it->second));
+
             ++it;
         }
         return val.toJSON();
@@ -656,11 +660,14 @@ static String formatDiagnostics(const Diagnostics &diagnostics, Flags<QueryMessa
         if (!active.isEmpty() && !active.contains(f)) {
             continue;
         }
-        if (!filter.isEmpty() && !filter.contains(f)) {
-            continue;
-        }
         const Diagnostic &diagnostic = entry.second;
         if (f != lastFileId) {
+            if (filterSize && !filter.remove(f)) {
+                error() << "shit is not in the set" << Location::path(f) << f << filter;
+                lastFileId = loc.fileId();
+                continue;
+            }
+
             if (first) {
                 ret = header[format];
                 first = false;
@@ -674,14 +681,20 @@ static String formatDiagnostics(const Diagnostics &diagnostics, Flags<QueryMessa
     }
     if (lastFileId) {
         ret << endFile[format];
-    } else if (filter.size() == 1) {
-        const Path path = Location::path(*filter.begin());
+    }
+
+    error() << "filter remaining" << filter;
+    for (uint32_t f : filter) {
+        const Path path = Location::path(f);
+        error() << "shit" << path;
+        first = true;
         ret << header[format]
             << String::format<256>(fileEmpty[format], path.constData())
             << endFile[format] << trailer[format];
     }
     if (!first)
         ret << trailer[format];
+
     return ret;
 }
 
@@ -805,11 +818,14 @@ void Project::diagnose(uint32_t fileId)
                     // I know this is RTagsLogOutput because it returned
                     // true for testLog(RTags::DiagnosticsLevel)
                     format = QueryMessage::Elisp;
+                } else if (output->flags() & RTagsLogOutput::JSON) {
+                    format = QueryMessage::JSON;
                 }
+
                 Set<uint32_t> filter;
                 if (fileId)
                     filter.insert(fileId);
-                const String log = formatDiagnostics(mDiagnostics, format, filter);
+                const String log = formatDiagnostics(mDiagnostics, format, std::move(filter));
                 if (!log.isEmpty())
                     output->log(log);
             }
@@ -825,7 +841,10 @@ void Project::diagnoseAll()
                     // I know this is RTagsLogOutput because it returned
                     // true for testLog(RTags::DiagnosticsLevel)
                     format = QueryMessage::Elisp;
+                } else if (output->flags() & RTagsLogOutput::JSON) {
+                    format = QueryMessage::JSON;
                 }
+
                 const String log = formatDiagnostics(mDiagnostics, format);
                 if (!log.isEmpty())
                     output->log(log);
@@ -838,7 +857,7 @@ String Project::diagnosticsToString(Flags<QueryMessage::Flag> flags, uint32_t fi
     Set<uint32_t> filter;
     if (fileId)
         filter.insert(fileId);
-    return formatDiagnostics(mDiagnostics, flags, filter);
+    return formatDiagnostics(mDiagnostics, flags, std::move(filter));
 }
 
 bool Project::save()
@@ -1322,9 +1341,9 @@ void Project::updateDiagnostics(uint32_t fileId, const Diagnostics &diagnostics)
             mDiagnostics.insert(it);
         }
     }
-    const Server::Options &options = Server::instance()->options();
+    error() << "Got diagnostics" << diagnostics.keys() << files;
 
-    if (!files.isEmpty() || options.options & Server::Progress) {
+    if (!files.isEmpty() || !diagnostics.isEmpty()) {
         log([&](const std::shared_ptr<LogOutput> &output) {
                 if (output->testLog(RTags::DiagnosticsLevel)) {
                     QueryMessage::Flag format = QueryMessage::XML;
@@ -1332,12 +1351,12 @@ void Project::updateDiagnostics(uint32_t fileId, const Diagnostics &diagnostics)
                         // I know this is RTagsLogOutput because it returned
                         // true for testLog(RTags::DiagnosticsLevel)
                         format = QueryMessage::Elisp;
+                    } else if (output->flags() & RTagsLogOutput::JSON) {
+                        format = QueryMessage::JSON;
                     }
-                    if (!diagnostics.isEmpty()) {
-                        const String log = formatDiagnostics(mDiagnostics, format, files);
-                        if (!log.isEmpty()) {
-                            output->log(log);
-                        }
+                    const String log = formatDiagnostics(mDiagnostics, format, Set<uint32_t>(files));
+                    if (!log.isEmpty()) {
+                        output->log(log);
                     }
                 }
             });
