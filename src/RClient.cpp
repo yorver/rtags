@@ -178,6 +178,7 @@ std::initializer_list<CommandLineParser::Option<RClient::OptionType> > opts = {
     { RClient::CodeCompleteNoWait, "code-complete-no-wait", 0, CommandLineParser::NoValue, "Don't wait for synchronous completion if the translation unit has to be created." },
     { RClient::CodeCompletePrefix, "code-complete-prefix", 0, CommandLineParser::Required, "Filter out code completion results that don't start with this prefix." },
     { RClient::CodeCompletionEnabled, "code-completion-enabled", 'b', CommandLineParser::NoValue, "Inform rdm that we're code-completing. Use with --diagnose" },
+    { RClient::CodeCompleteCurrentParam, "code-complete-param", 0, CommandLineParser::NoValue, "Only show current parameter information"},
     { RClient::NoSpellCheckinging, "no-spell-checking", 0, CommandLineParser::NoValue, "Don't produce spell check info in diagnostics." },
 #ifdef RTAGS_HAS_LUA
     { RClient::VisitASTScript, "visit-ast-script", 0, CommandLineParser::Required, "Use this script visit AST (@file.js|sourcecode)." },
@@ -506,6 +507,9 @@ CommandLineParser::ParseStatus RClient::parse(size_t argc, char **argv)
             break; }
         case CodeCompletionEnabled: {
             mQueryFlags |= QueryMessage::CodeCompletionEnabled;
+            break; }
+        case CodeCompleteCurrentParam: {
+            mQueryFlags |= QueryMessage::CodeCompleteSignatureHelp; 
             break; }
         case CompilationFlagsOnly: {
             mQueryFlags |= QueryMessage::CompilationFlagsOnly;

@@ -223,6 +223,7 @@ String Symbol::kindSpelling(uint16_t kind)
 
 String Symbol::displayName() const
 {
+    return symbolName;
     switch (kind) {
     case CXCursor_FunctionTemplate:
     case CXCursor_FunctionDecl:

@@ -110,9 +110,11 @@ void CompletionThread::completeAt(Source &&source, Location location,
     if (Server::instance()->options().options & Server::CompletionLogs)
         error() << "CODE COMPLETION completeAt" << Rct::currentTimeString() << location << flags;
 
-    Request *request = new Request({ std::forward<Source>(source), location, flags, max, unsavedFiles, prefix, conn});
+    Request *request = new Request({ std::forward<Source>(source), location, flags, max, unsavedFiles, prefix, conn, 20});
     std::unique_lock<std::mutex> lock(mMutex);
     auto it = mPending.begin();
+
+    //delete all outstanding requests for same source file
     while (it != mPending.end()) {
         if ((*it)->source == source) {
             delete *it;
@@ -140,7 +142,7 @@ void CompletionThread::prepare(Source &&source, const UnsavedFiles &unsavedFiles
         }
     }
 
-    Request *request = new Request({ std::forward<Source>(source), Location(), WarmUp, -1, unsavedFiles, String(), std::shared_ptr<Connection>() });
+    Request *request = new Request({ std::forward<Source>(source), Location(), WarmUp, -1, unsavedFiles, String(), std::shared_ptr<Connection>(), 20 });
     mPending.push_back(request);
     mCondition.notify_one();
 }
@@ -183,6 +185,41 @@ bool CompletionThread::compareCompletionCandidates(const Completions::Candidate 
         return l->distance > r->distance;
 #endif
     return l->completion < r->completion;
+}
+
+void GetSignatureHelp(SignatureInfo *result, CXCompletionString completionString, bool optional = false)
+{     
+    const int chunkCount = clang_getNumCompletionChunks(completionString); 
+    for (int j=0; j<chunkCount; ++j) 
+    {
+        const CXCompletionChunkKind chunkKind = clang_getCompletionChunkKind(completionString, j);
+        String text;
+        if (chunkKind != CXCompletionChunk_Optional)
+            text = RTags::eatString( clang_getCompletionChunkText(completionString, j));
+                      
+        switch (chunkKind)
+        {
+            case CXCompletionChunk_ResultType:
+                text = text + ' ';
+            case CXCompletionChunk_CurrentParameter:
+                result->mCurrentParam = (int)result->mParameters.size();
+            case CXCompletionChunk_Placeholder:     
+                result->mParameters.emplace_back(text);
+                if (optional)
+                    text = '[' + text + ']';;
+                break;
+            case CXCompletionChunk_Optional:
+            {
+               auto cs =  clang_getCompletionChunkCompletionString(completionString, j);
+               GetSignatureHelp(result, cs, true);   
+               return;            
+            }
+            default:
+                break;
+        }   
+
+        result->candidate->signature += text;
+     }    
 }
 
 void CompletionThread::process(Request *request)
@@ -326,7 +363,7 @@ void CompletionThread::process(Request *request)
     ++cache->completions;
     if (results) {
         List<CompletionCandidate *> candidates;
-        candidates.reserve(results->NumResults);
+        candidates.reserve(request->maxCompletions);
 
         const auto it = cache->unsavedFiles.find(cache->source.sourceFile());
         const String *unsaved = (it != cache->unsavedFiles.end()) ? &it->second : nullptr;
@@ -341,7 +378,13 @@ void CompletionThread::process(Request *request)
             // }
         }
 #endif
-        for (unsigned int i = 0; i < results->NumResults; ++i) {
+
+        List<std::unique_ptr<MatchResult> > matches;
+        matches.reserve(request->maxCompletions);
+
+        for (unsigned int i = 0;
+            i < results->NumResults && (int)matches.size() < request->maxCompletions; ++i)
+        {
             const CXCursorKind kind = results->Results[i].CursorKind;
             const CXCompletionString &string = results->Results[i].CompletionString;
 
@@ -358,7 +401,7 @@ void CompletionThread::process(Request *request)
                     continue;
                 }
             }
-
+                    
             const int priority = clang_getCompletionPriority(string);
 
             CompletionCandidate *candidate = new CompletionCandidate;
@@ -366,8 +409,16 @@ void CompletionThread::process(Request *request)
             candidate->priority = priority;
             candidate->parent = RTags::eatString(clang_getCompletionParent(string, 0));
             candidate->brief_comment = RTags::eatString(clang_getCompletionBriefComment(string));
-
-            candidates.push_back(candidate);
+            
+            if (request->flags & SignatureHelp)
+            {
+                if (kind == CXCursor_OverloadCandidate )
+                {                
+                    matches.emplace_back(new SignatureInfo(candidate));
+                    GetSignatureHelp(static_cast<SignatureInfo*>(matches.back().get()), string);
+                }
+                continue;
+            }
 
             bool ok = true;
             const int chunkCount = clang_getNumCompletionChunks(string);
@@ -400,9 +451,18 @@ void CompletionThread::process(Request *request)
                     }
                 }
             }
+
+            if ((int)matches.size() <= request->maxCompletions)
+            {
+                candidates.push_back(candidate);
+
+                if (auto r = StringTokenizer::find_match(candidate, request->prefix))
+                {
+                    matches.emplace_back(std::move(r));
+                }
+            }
         }
 
-        List<std::unique_ptr<MatchResult> > matches = StringTokenizer::find_and_sort_matches(candidates, request->prefix);
 
         if ((request->max != -1) && (static_cast<size_t>(request->max) < matches.size())) {
             matches.resize(request->max);
@@ -479,6 +539,31 @@ struct Output
     Flags<CompletionThread::Flag> flags;
 };
 
+json jsonSignatureHelp(const List<std::unique_ptr<MatchResult> > & signatures)
+{
+    json j = {{"signatures", json::array()}, {"activeParameter", 0}};
+
+    for (auto& s: signatures)
+    {
+        assert(s->type == SIGNATURE);
+        auto signature = static_cast<const SignatureInfo*>(s.get());
+        auto c = s->candidate;
+        j["activeParameter"] = signature->mCurrentParam;      
+     
+        auto parameters = json::array();        
+        for (auto& p: signature->mParameters)
+        {
+            parameters += {{"label", p}};            
+        }
+
+        j["signatures"] += {
+            {"label", c->signature},
+            {"documentation", c->brief_comment},
+            {"parameters", parameters}};      
+    }
+    return j;
+}
+
 void CompletionThread::printCompletions(const List<std::unique_ptr<MatchResult> > &results, Request *request)
 {
     static List<String> cursorKindNames;
@@ -553,7 +638,14 @@ void CompletionThread::printCompletions(const List<std::unique_ptr<MatchResult> 
             elispOut << String::format<256>("(list 'completions (list \"%s\" (list",
                                             RTags::elispEscape(request->location.toString(Location::AbsolutePath)).constData());
         }
-        for (const std::unique_ptr<MatchResult> &result : results) {
+        
+        if (request->flags & SignatureHelp)
+        {
+           j = jsonSignatureHelp(results);
+        }
+        else
+            for (auto &result : results) {
+
             CompletionCandidate *c = result->candidate;
             const String str = String::format<128>(" %s %s %s %s %s %s\n",
                                                    c->name.c_str(),

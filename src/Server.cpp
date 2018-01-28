@@ -804,7 +804,7 @@ void Server::handleQueryMessage(const std::shared_ptr<QueryMessage> &message, co
 }
 
 void Server::followLocation(const std::shared_ptr<QueryMessage> &query, const std::shared_ptr<Connection> &conn)
-{
+{    
     const Location loc = query->location();
     if (loc.isNull()) {
         conn->write("Not indexed");
@@ -2338,6 +2338,8 @@ void Server::codeCompleteAt(const std::shared_ptr<QueryMessage> &query, const st
         flags |= CompletionThread::IncludeMacros;
     if (query->flags() & QueryMessage::CodeCompleteNoWait)
         flags |= CompletionThread::NoWait;
+    if (query->flags() & QueryMessage::CodeCompleteSignatureHelp)
+        flags |= CompletionThread::SignatureHelp;
     mCompletionThread->completeAt(std::move(source), loc, flags, query->max(), query->unsavedFiles(), query->codeCompletePrefix(), c);
 }
 

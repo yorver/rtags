@@ -47,7 +47,8 @@ public:
         IncludeMacros = 0x08,
         WarmUp = 0x10,
         NoWait = 0x20,
-        Diagnose = 0x40
+        Diagnose = 0x40,
+        SignatureHelp = 0x80
     };
     bool isCached(const std::shared_ptr<Project> &project, uint32_t fileId) const;
     void completeAt(Source &&source, Location location, Flags<Flag> flags, int max,
@@ -80,6 +81,7 @@ private:
         UnsavedFiles unsavedFiles;
         String prefix;
         std::shared_ptr<Connection> conn;
+        int maxCompletions;
     };
     LinkedList<Request*> mPending;
     struct Dump {

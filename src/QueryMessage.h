@@ -127,7 +127,8 @@ public:
         CodeCompletionEnabled = (1ull << 44),
         SynchronousDiagnostics = (1ull << 45),
         CodeCompleteNoWait = (1ull << 46),
-        AllTargets = (1ull << 47)
+        AllTargets = (1ull << 47),
+        CodeCompleteSignatureHelp = (1ull < 48)
     };
 
     QueryMessage(Type type = Invalid);

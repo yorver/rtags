@@ -192,11 +192,9 @@ bool QueryJob::write(Location location, Flags<WriteFlag> flags)
                 case Piece_SymbolName:
                 case Piece_Kind:
                 case Piece_Context:
-                    out << '\t';
-                    break;
                 case Piece_ContainingFunctionName:
                 case Piece_ContainingFunctionLocation:
-                    out << "\tfunction: ";
+                    out << '\t';
                     break;
                 }
                 out << string;

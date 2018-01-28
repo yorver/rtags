@@ -50,6 +50,7 @@ public:
         CodeCompleteNoWait,
         CodeCompletePrefix,
         CodeCompletionEnabled,
+        CodeCompleteCurrentParam,
         CompilationFlagsOnly,
         CompilationFlagsPwd,
         CompilationFlagsSplitLine,
